@@ -1,5 +1,6 @@
 #include "Tray.hpp"
 #include "Autostart.hpp"
+#include "Settings.hpp"
 
 #include <SDL3/SDL.h>
 #include <atomic>
@@ -20,6 +21,15 @@ namespace
     SDL_TrayEntry* gEntryAutostart{};
     // -1 none, 0 off, 1 on. Applied under the lock by trayUpdate().
     std::atomic<int> gRequestedAutoConnect{-1};
+
+    // "Equalizador" submenu, rebuilt whenever the preset list changes (clientGetEqPresetsVersion).
+    SDL_TrayEntry* gEntryEq{};
+    SDL_TrayMenu* gEqMenu{};
+    SDL_TrayEntry* gEqEntries[kMaxEqPresets]{};
+    int gEqEntryCount{};
+    SDL_TrayEntry* gEqPlaceholder{};
+    uint32_t gEqShownVersion{};
+    std::atomic<int> gRequestedEq{-1}; // Preset index, applied under the lock by trayUpdate().
 
     // Written by menu callbacks (main thread, outside the worker lock), consumed by trayUpdate().
     // Holds an MDRNoiseMode, kRequestNone, or kRequestNext.
@@ -58,7 +68,8 @@ namespace
         return a.autoConnect == b.autoConnect && a.hasSavedDevice == b.hasSavedDevice && a.waiting == b.waiting &&
             a.connecting == b.connecting && a.connected == b.connected && a.hasBattery == b.hasBattery && a.batteryPercent == b.batteryPercent &&
             a.charging == b.charging && a.hasNoise == b.hasNoise && a.canCancel == b.canCancel &&
-            a.canAmbient == b.canAmbient && a.noiseMode == b.noiseMode &&
+            a.canAmbient == b.canAmbient && a.noiseMode == b.noiseMode && a.eqUsable == b.eqUsable &&
+            a.eqBandCount == b.eqBandCount && a.eqActive == b.eqActive &&
             std::strcmp(a.modelName, b.modelName) == 0;
     }
 
@@ -144,6 +155,14 @@ namespace
         SDL_SetTrayEntryChecked(gEntryCancel, noise && status.noiseMode == MDR_NOISE_MODE_CANCELLING);
         SDL_SetTrayEntryChecked(gEntryAmbient, noise && status.noiseMode == MDR_NOISE_MODE_AMBIENT);
         SDL_SetTrayEntryChecked(gEntryOff, noise && status.noiseMode == MDR_NOISE_MODE_OFF);
+        SDL_SetTrayEntryEnabled(gEntryEq, status.connected && status.eqUsable);
+        for (int i = 0; i < gEqEntryCount; ++i)
+        {
+            const bool compatible =
+                clientGetEqPresetBandCount(i) == static_cast<int>(status.eqBandCount) && status.eqUsable;
+            SDL_SetTrayEntryEnabled(gEqEntries[i], status.connected && compatible);
+            SDL_SetTrayEntryChecked(gEqEntries[i], status.connected && status.eqActive == i);
+        }
         SDL_SetTrayEntryChecked(gEntryAutoConnect, status.autoConnect);
         if (gEntryAutostart)
             SDL_SetTrayEntryChecked(gEntryAutostart, autostartIsEnabled());
@@ -192,6 +211,41 @@ namespace
             return candidate;
         }
         return MDR_NOISE_MODE_OFF;
+    }
+
+    void SDLCALL OnEqPreset(void* userdata, SDL_TrayEntry*)
+    {
+        gRequestedEq = static_cast<int>(reinterpret_cast<intptr_t>(userdata));
+        gForceRefresh = true; // SDL flipped the checkbox; show what the device ends up with instead.
+        Wake();
+    }
+
+    // Main thread, under the lock (reads preset names from Client.cpp).
+    void RebuildEqMenu()
+    {
+        if (!gEqMenu)
+            return;
+        for (int i = 0; i < gEqEntryCount; ++i)
+            SDL_RemoveTrayEntry(gEqEntries[i]);
+        if (gEqPlaceholder)
+            SDL_RemoveTrayEntry(gEqPlaceholder);
+        gEqEntryCount = 0;
+        gEqPlaceholder = nullptr;
+        const int count = clientGetEqPresetCount();
+        for (int i = 0; i < count && i < kMaxEqPresets; ++i)
+        {
+            const char* name = clientGetEqPresetName(i);
+            SDL_TrayEntry* entry = SDL_InsertTrayEntryAt(gEqMenu, -1, name, SDL_TRAYENTRY_CHECKBOX);
+            if (!entry)
+                break;
+            SDL_SetTrayEntryCallback(entry, OnEqPreset, reinterpret_cast<void*>(static_cast<intptr_t>(i)));
+            gEqEntries[gEqEntryCount++] = entry;
+        }
+        if (gEqEntryCount == 0)
+            gEqPlaceholder = SDL_InsertTrayEntryAt(gEqMenu, -1, "Nenhum preset — salve um pela janela",
+                                                   SDL_TRAYENTRY_BUTTON | SDL_TRAYENTRY_DISABLED);
+        gEqShownVersion = clientGetEqPresetsVersion();
+        gForceRefresh = true;
     }
 
     void SDLCALL OnAutoConnect(void*, SDL_TrayEntry* entry)
@@ -252,6 +306,9 @@ bool trayInit(SDL_Window* window)
     gEntryOff = AddEntry(menu, ModeLabel(MDR_NOISE_MODE_OFF), SDL_TRAYENTRY_CHECKBOX, OnMode,
                          reinterpret_cast<void*>(static_cast<intptr_t>(MDR_NOISE_MODE_OFF)));
     gEntryNext = AddEntry(menu, "Próximo modo", SDL_TRAYENTRY_BUTTON, OnNext);
+    gEntryEq = AddEntry(menu, "Equalizador", SDL_TRAYENTRY_SUBMENU);
+    gEqMenu = gEntryEq ? SDL_CreateTraySubmenu(gEntryEq) : nullptr;
+    gEqShownVersion = 0; // Filled by the first trayUpdate(), which holds the lock.
     AddEntry(menu, nullptr, SDL_TRAYENTRY_BUTTON); // separator
     AddEntry(menu, nullptr, SDL_TRAYENTRY_BUTTON); // separator
     gEntryAutoConnect = AddEntry(menu, "Reconectar automaticamente", SDL_TRAYENTRY_CHECKBOX, OnAutoConnect);
@@ -275,6 +332,11 @@ void trayUpdate()
     const int autoConnect = gRequestedAutoConnect.exchange(-1);
     if (autoConnect >= 0)
         clientSetAutoConnect(autoConnect == 1);
+    if (gEqShownVersion != clientGetEqPresetsVersion())
+        RebuildEqMenu();
+    const int eqPreset = gRequestedEq.exchange(-1);
+    if (eqPreset >= 0 && !clientApplyEqPreset(eqPreset))
+        SDL_Log("EQ preset %d could not be applied", eqPreset);
 
     ClientTrayStatus status{};
     clientGetTrayStatus(status);
@@ -341,4 +403,9 @@ void trayDestroy()
     gTrayWindow = nullptr;
     gEntryStatus = gEntryCancel = gEntryAmbient = gEntryOff = gEntryNext = gEntryWindow = nullptr;
     gEntryAutoConnect = gEntryAutostart = nullptr;
+    gEntryEq = nullptr;
+    gEqMenu = nullptr;
+    gEqEntryCount = 0;
+    gEqPlaceholder = nullptr;
+    gEqShownVersion = 0;
 }

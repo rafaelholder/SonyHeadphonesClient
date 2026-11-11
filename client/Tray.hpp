@@ -21,12 +21,21 @@ struct ClientTrayStatus
     bool canCancel{};
     bool canAmbient{};
     MDRNoiseMode noiseMode{MDR_NOISE_MODE_OFF};
+    bool eqUsable{};         // Device has an equalizer and it is usable right now.
+    uint32_t eqBandCount{};  // Current band layout; presets saved for another layout are greyed out.
+    int eqActive{-1};        // User preset matching the device's EQ, or -1.
 };
 
 // Implemented in Client.cpp. Must be called with the client worker lock held (see SDLMain.cpp).
 extern void clientGetTrayStatus(ClientTrayStatus& out);
 extern bool clientSetNoiseMode(MDRNoiseMode mode);
 extern void clientSetAutoConnect(bool enabled);
+// User EQ presets (stored in settings.ini). Same lock rules.
+extern uint32_t clientGetEqPresetsVersion();
+extern int clientGetEqPresetCount();
+extern const char* clientGetEqPresetName(int index);
+extern int clientGetEqPresetBandCount(int index);
+extern bool clientApplyEqPreset(int index);
 
 // Main thread only. Returns false when the platform has no tray (the app then behaves as before).
 extern bool trayInit(SDL_Window* window);

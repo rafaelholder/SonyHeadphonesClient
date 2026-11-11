@@ -82,6 +82,10 @@
   - a presença do fone é consultada com `BluetoothGetDeviceInfo`, que lê o cache local do rádio sem inquiry nem paging. A conexão RFCOMM só é tentada quando o Windows já mostra o fone conectado;
   - testado pelo usuário em 11/11/2026: o `settings.ini` foi criado com `last_protocol=v2` e a chave Run aponta para `...\build\client\Release\SonyHeadphonesClient.exe --tray`.
 
+- **Presets de EQ do usuário** (`client/Settings.*`, funções `clientApplyEqPreset`, `SaveCurrentEqAsPreset` e `MatchingEqPreset` em `client/Client.cpp`, submenu "Equalizador" em `client/Tray.cpp`):
+  - ficam no mesmo `settings.ini`, como linhas `eq_preset=nome|clear bass|bandas`. A leitura é estrita: inteiros entre −100 e 100, no máximo 10 bandas e 16 presets, e o nome sai sem `|` nem caracteres de controle;
+  - ao aplicar um preset, o app troca o fone para um preset customizável (Manual/Custom) e envia as bandas e o Clear Bass ajustados ao limite que o fone informa;
+  - testado pelo usuário com o WH-1000XM5 em 11/11/2026: o som mudou ao aplicar os presets.
 - **Instalação local** (`tooling/install-windows.ps1`):
   - copia o `.exe` para `%LOCALAPPDATA%\Programs\SonyHeadphonesClient` e confere o SHA-256 da cópia;
   - cria um atalho no menu Iniciar;

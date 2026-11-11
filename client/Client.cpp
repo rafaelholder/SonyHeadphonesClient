@@ -1102,6 +1102,159 @@ static std::chrono::steady_clock::time_point gNextAutoCheck{};
 constexpr std::chrono::seconds kAutoCheckInterval{3}; // Cheap local OS query, no radio traffic.
 constexpr std::chrono::seconds kAutoRetryDelay{15};   // After an RFCOMM attempt failed while the OS showed it connected.
 
+/* User EQ presets (rafaelholder fork), stored in gSettings. Same locking rules as above. */
+static uint32_t gEqPresetsVersion{1}; // Bumped on add/delete so the tray rebuilds its submenu.
+
+bool IsCustomizablePreset(MDREqualizerPreset preset)
+{
+    return preset == MDR_EQ_CUSTOM || (preset >= MDR_EQ_USER_1 && preset <= MDR_EQ_USER_5);
+}
+
+// Bands are written into whatever preset is active, so a user preset first needs a preset that keeps
+// custom bands ("Manual"/"Custom" in Sony's app). Prefer one the device advertised.
+MDREqualizerPreset TargetCustomPreset(MDREqualizerPreset current)
+{
+    if (IsCustomizablePreset(current))
+        return current;
+    const auto advertised = GetEqualizerPresets();
+    for (const MDREqualizerPreset wanted : {MDR_EQ_CUSTOM, MDR_EQ_USER_1})
+        for (const auto& [id, name] : advertised)
+            if (id == wanted)
+                return id;
+    // No list (the device never reported one): libmdr then accepts any id. Hypothesis: "Manual" is CUSTOM.
+    return MDR_EQ_CUSTOM;
+}
+
+bool EqReady(MDREqualizer& equalizer)
+{
+    return connState == CONN_STATE_CONNECTED && gDevice && mdrHeadphonesIsInitialized(gDevice) &&
+        FeatureAvailable(MDR_FEATURE_EQUALIZER) &&
+        mdrHeadphonesGetEqualizer(gDevice, MDR_PROPERTY_DESIRED, &equalizer) == MDR_RESULT_OK &&
+        equalizer.available != MDR_FALSE;
+}
+
+int32_t ClampTo(int32_t value, const std::optional<ValueRange>& range)
+{
+    return range ? std::clamp<int32_t>(value, range->min, range->max) : value;
+}
+
+// Index of the user preset matching the device's DESIRED EQ, or -1.
+int MatchingEqPreset()
+{
+    MDREqualizer equalizer{};
+    if (!EqReady(equalizer) || !IsCustomizablePreset(equalizer.preset))
+        return -1;
+    const auto bands = GetEqualizerBands(MDR_PROPERTY_DESIRED);
+    const bool hasClearBass =
+        GetRange(MDR_VALUE_EQUALIZER_CLEAR_BASS_MIN, MDR_VALUE_EQUALIZER_CLEAR_BASS_MAX).has_value();
+    const auto bandRange = GetRange(MDR_VALUE_EQUALIZER_BAND_MIN, MDR_VALUE_EQUALIZER_BAND_MAX,
+                                    static_cast<uint32_t>(bands.size()));
+    const auto clearBassRange = GetRange(MDR_VALUE_EQUALIZER_CLEAR_BASS_MIN, MDR_VALUE_EQUALIZER_CLEAR_BASS_MAX);
+    for (int i = 0; i < gSettings.eqPresetCount; ++i)
+    {
+        const EqPreset& preset = gSettings.eqPresets[i];
+        if (preset.bandCount != static_cast<int>(bands.size()))
+            continue;
+        bool same = !hasClearBass || ClampTo(preset.clearBass, clearBassRange) == equalizer.clear_bass;
+        for (int b = 0; same && b < preset.bandCount; ++b)
+            same = ClampTo(preset.bands[b], bandRange) == bands[static_cast<size_t>(b)];
+        if (same)
+            return i;
+    }
+    return -1;
+}
+
+bool clientApplyEqPreset(int index)
+{
+    MDREqualizer equalizer{};
+    if (index < 0 || index >= gSettings.eqPresetCount || !EqReady(equalizer))
+        return false;
+    const EqPreset& preset = gSettings.eqPresets[index];
+    if (preset.bandCount != static_cast<int>(equalizer.band_count))
+        return false; // Saved for a different band layout.
+    const MDREqualizerPreset target = TargetCustomPreset(equalizer.preset);
+    if (target != equalizer.preset && mdrHeadphonesSetEqualizerPreset(gDevice, target) != MDR_RESULT_OK)
+        return false;
+    const auto bandRange = GetRange(MDR_VALUE_EQUALIZER_BAND_MIN, MDR_VALUE_EQUALIZER_BAND_MAX,
+                                    static_cast<uint32_t>(preset.bandCount));
+    mdr::Vector<int32_t> bands;
+    for (int b = 0; b < preset.bandCount; ++b)
+        bands.push_back(ClampTo(preset.bands[b], bandRange));
+    if (mdrHeadphonesSetEqualizerBands(gDevice, bands.data(), static_cast<uint32_t>(bands.size())) != MDR_RESULT_OK)
+        return false;
+    if (const auto clearBassRange = GetRange(MDR_VALUE_EQUALIZER_CLEAR_BASS_MIN, MDR_VALUE_EQUALIZER_CLEAR_BASS_MAX))
+        mdrHeadphonesSetEqualizerClearBass(gDevice, ClampTo(preset.clearBass, clearBassRange));
+    gWantRedraw = true;
+    return true;
+}
+
+// Saves the device's current (DESIRED) bands + Clear Bass under `name`, replacing a preset of the same name.
+bool SaveCurrentEqAsPreset(const char* name)
+{
+    MDREqualizer equalizer{};
+    if (!EqReady(equalizer))
+        return false;
+    const auto bands = GetEqualizerBands(MDR_PROPERTY_DESIRED);
+    if (bands.empty() || bands.size() > static_cast<size_t>(kMaxEqBands))
+        return false;
+    EqPreset preset{};
+    settingsSetPresetName(preset, name);
+    if (!preset.name[0])
+        return false;
+    preset.bandCount = static_cast<int>(bands.size());
+    for (int b = 0; b < preset.bandCount; ++b)
+        preset.bands[b] = bands[static_cast<size_t>(b)];
+    preset.clearBass =
+        GetRange(MDR_VALUE_EQUALIZER_CLEAR_BASS_MIN, MDR_VALUE_EQUALIZER_CLEAR_BASS_MAX) ? equalizer.clear_bass : 0;
+    int slot = -1;
+    for (int i = 0; i < gSettings.eqPresetCount; ++i)
+        if (std::strcmp(gSettings.eqPresets[i].name, preset.name) == 0)
+            slot = i;
+    if (slot < 0)
+    {
+        if (gSettings.eqPresetCount >= kMaxEqPresets)
+            return false;
+        slot = gSettings.eqPresetCount++;
+    }
+    gSettings.eqPresets[slot] = preset;
+    ++gEqPresetsVersion;
+    if (!settingsSave(gSettings))
+        MDR_LOG("Unable to save settings: {}", SDL_GetError());
+    return true;
+}
+
+void DeleteEqPreset(int index)
+{
+    if (index < 0 || index >= gSettings.eqPresetCount)
+        return;
+    for (int i = index; i + 1 < gSettings.eqPresetCount; ++i)
+        gSettings.eqPresets[i] = gSettings.eqPresets[i + 1];
+    gSettings.eqPresets[--gSettings.eqPresetCount] = {};
+    ++gEqPresetsVersion;
+    if (!settingsSave(gSettings))
+        MDR_LOG("Unable to save settings: {}", SDL_GetError());
+}
+
+uint32_t clientGetEqPresetsVersion()
+{
+    return gEqPresetsVersion;
+}
+
+int clientGetEqPresetCount()
+{
+    return gSettings.eqPresetCount;
+}
+
+const char* clientGetEqPresetName(int index)
+{
+    return index >= 0 && index < gSettings.eqPresetCount ? gSettings.eqPresets[index].name : "";
+}
+
+int clientGetEqPresetBandCount(int index)
+{
+    return index >= 0 && index < gSettings.eqPresetCount ? gSettings.eqPresets[index].bandCount : 0;
+}
+
 void RefreshDeviceList()
 {
     MDRConnection* conn = clientPlatformConnectionGet();
@@ -1994,6 +2147,41 @@ void DrawDeviceControlsSound()
             if (ImGui::SliderInt("##", &clearBass, clearBassRange->min, clearBassRange->max) && equalizerAvailable)
                 mdrHeadphonesSetEqualizerClearBass(gDevice, static_cast<int32_t>(clearBass));
         }
+        /* User presets (rafaelholder fork): saved in settings.ini, also listed in the tray menu. */
+        ImHeading("Meus presets", IM_FONTSIZE_SUBHEADING);
+        {
+            const int active = MatchingEqPreset();
+            int remove = -1;
+            for (int i = 0; i < gSettings.eqPresetCount; ++i)
+            {
+                const EqPreset& preset = gSettings.eqPresets[i];
+                ImGui::PushID(i);
+                const bool compatible = preset.bandCount == static_cast<int>(equalizerBands.size());
+                ImGui::BeginDisabled(!compatible || !equalizerAvailable);
+                if (ImGui::RadioButton(preset.name, active == i))
+                    clientApplyEqPreset(i);
+                ImGui::EndDisabled();
+                if (!compatible && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+                    ImGui::SetTooltip("Salvo para %d bandas; o fone usa %d.", preset.bandCount,
+                                      static_cast<int>(equalizerBands.size()));
+                ImGui::SameLine();
+                if (ImGui::SmallButton("Excluir"))
+                    remove = i;
+                ImGui::PopID();
+            }
+            if (remove >= 0)
+                DeleteEqPreset(remove);
+            static char newName[kEqPresetNameSize]{};
+            ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x * 0.6f);
+            ImGui::InputTextWithHint("##eqPresetName", "Nome do novo preset", newName, sizeof(newName));
+            ImGui::SameLine();
+            ImGui::BeginDisabled(!newName[0] || !equalizerAvailable || equalizerBands.empty() ||
+                                 gSettings.eqPresetCount >= kMaxEqPresets);
+            if (ImGui::Button("Salvar EQ atual") && SaveCurrentEqAsPreset(newName))
+                newName[0] = '\0';
+            ImGui::EndDisabled();
+            ImGui::TextDisabled("Mesmo nome substitui o preset. Também aparecem no menu da bandeja.");
+        }
         ImGui::EndDisabled();
         ImHeading(Tr(i18n::TextId::Dsee), IM_FONTSIZE_SUBHEADING);
         ImGui::BeginDisabled(!FeatureAvailable(MDR_FEATURE_DSEE) || !dseeUsable);
@@ -2773,6 +2961,11 @@ void clientGetTrayStatus(ClientTrayStatus& out)
     out.hasNoise = (out.canCancel || out.canAmbient) &&
         mdrHeadphonesGetNoiseControl(gDevice, MDR_PROPERTY_DESIRED, &noise) == MDR_RESULT_OK;
     out.noiseMode = noise.mode;
+
+    MDREqualizer equalizer{};
+    out.eqUsable = EqReady(equalizer);
+    out.eqBandCount = out.eqUsable ? equalizer.band_count : 0;
+    out.eqActive = out.eqUsable ? MatchingEqPreset() : -1;
 }
 
 void clientSetAutoConnect(bool enabled)
@@ -3021,6 +3214,7 @@ bool clientInit(float displayScale, const char* fontPath)
     gEmbeddedFont = nullptr;
     gDefaultFontFallbackPrepared = false;
     gSettings = settingsLoad();
+    settingsSave(gSettings); // Writes the starter EQ presets on first run; otherwise just normalizes the file.
     if (fontPath)
     {
         void* fontData{};
