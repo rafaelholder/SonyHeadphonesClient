@@ -26,6 +26,7 @@
 
 #include "I18N/Strings.hpp"
 #include "Platform/Platform.hpp"
+#include "Tray.hpp"
 
 #ifdef __EMSCRIPTEN__
 #include <emscripten.h>
@@ -93,7 +94,8 @@ namespace
 
     bool ShouldAppPresent()
     {
-        return !gShouldClose && gAppActive && !(SDL_GetWindowFlags(gWindow) & SDL_WINDOW_MINIMIZED);
+        return !gShouldClose && gAppActive &&
+            !(SDL_GetWindowFlags(gWindow) & (SDL_WINDOW_MINIMIZED | SDL_WINDOW_HIDDEN));
     }
 
 #if MDR_CLIENT_THREADED
@@ -138,8 +140,11 @@ void mainLoop()
     auto CheckIsActive = [&redraw](SDL_Event& event)
     {
         redraw = true;
-        if (event.type == SDL_EVENT_QUIT || event.type == SDL_EVENT_TERMINATING ||
-            (event.type == SDL_EVENT_WINDOW_CLOSE_REQUESTED && event.window.windowID == gWindowID))
+        const bool closeRequested =
+            event.type == SDL_EVENT_WINDOW_CLOSE_REQUESTED && event.window.windowID == gWindowID;
+        if (closeRequested && trayIsActive())
+            SDL_HideWindow(gWindow); // Keep running in the tray; "Sair" in the tray menu quits.
+        else if (event.type == SDL_EVENT_QUIT || event.type == SDL_EVENT_TERMINATING || closeRequested)
             gShouldClose = true;
         if (event.type == SDL_EVENT_WILL_ENTER_BACKGROUND || event.type == SDL_EVENT_DID_ENTER_BACKGROUND)
             gAppActive = false;
@@ -164,6 +169,7 @@ void mainLoop()
 #else
         redraw |= clientOnUpdate();
 #endif
+        trayUpdate(); // Needs the lock: reads/writes libmdr state.
         while (PollEvents(event))
         {
             CheckIsActive(event);
@@ -382,6 +388,7 @@ int main(int argc, char** argv)
         gRendererBackendInitialized = false;
         gPlatformBackendInitialized = false;
         gClientInitialized = false;
+        trayDestroy();
         SDL_DestroyRenderer(gRenderer);
         SDL_DestroyWindow(gWindow);
         gRenderer = nullptr;
@@ -469,6 +476,11 @@ int main(int argc, char** argv)
             MDR_LOG("Error: ImGui_ImplSDLRenderer3_Init()");
             break;
         }
+        if (trayInit(gWindow))
+            // Closing the only window must hide it, not quit (SDL sends SDL_EVENT_QUIT by default).
+            SDL_SetHint(SDL_HINT_QUIT_ON_LAST_WINDOW_CLOSE, "0");
+        else
+            MDR_LOG("Tray unavailable: {}", SDL_GetError());
 #if MDR_CLIENT_THREADED
         gStopClient = false;
         gClientThread = SDL_CreateThread(RunOnWorkerThread, "client", nullptr);

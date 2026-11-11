@@ -135,6 +135,7 @@ target_sources(
         PRIVATE
         SDLMain.cpp
         Client.cpp
+        Tray.cpp
         Fonts/PlexSansIcon.c
 )
 target_link_libraries(SonyHeadphonesClient PRIVATE Client_I18N)

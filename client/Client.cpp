@@ -25,6 +25,7 @@
 #include "MaterialYouTheme.hpp"
 #include "Platform/Platform.hpp"
 #include "I18N/Strings.hpp"
+#include "Tray.hpp"
 
 static AppLocale gAppLocale = AppLocale::DEFAULT;
 static bool gPlatformFontLoaded = false;
@@ -2628,6 +2629,61 @@ bool clientOnUpdate()
         gDiscoveryDeviceCount != lastDiscoveryDeviceCount;
     gWantRedraw = false;
     return redraw;
+}
+
+/* Tray integration (see Tray.hpp). Called with the worker lock held. */
+void clientGetTrayStatus(ClientTrayStatus& out)
+{
+    out = {};
+    out.connected = connState == CONN_STATE_CONNECTED && gDevice && mdrHeadphonesIsInitialized(gDevice);
+    if (!out.connected)
+        return;
+    SDL_strlcpy(out.modelName, GetText(MDR_TEXT_MODEL_NAME).c_str(), sizeof(out.modelName));
+
+    // Headbands report a single MAIN battery; earbuds report LEFT/RIGHT, where the lower one matters.
+    for (const MDRBattery& battery : GetBatteries())
+    {
+        if (battery.part == MDR_BATTERY_CASE)
+            continue;
+        if (!out.hasBattery || battery.part == MDR_BATTERY_MAIN || battery.level_percent < out.batteryPercent)
+        {
+            out.batteryPercent = battery.level_percent;
+            out.charging = battery.charging == MDR_CHARGING_YES;
+        }
+        out.hasBattery = true;
+        if (battery.part == MDR_BATTERY_MAIN)
+            break;
+    }
+
+    MDRNoiseControl noise{};
+    out.canCancel = FeatureAvailable(MDR_FEATURE_NOISE_CANCELLING);
+    out.canAmbient = FeatureAvailable(MDR_FEATURE_AMBIENT_SOUND);
+    out.hasNoise = (out.canCancel || out.canAmbient) &&
+        mdrHeadphonesGetNoiseControl(gDevice, MDR_PROPERTY_DESIRED, &noise) == MDR_RESULT_OK;
+    out.noiseMode = noise.mode;
+}
+
+bool clientSetNoiseMode(MDRNoiseMode mode)
+{
+    if (connState != CONN_STATE_CONNECTED || !gDevice || !mdrHeadphonesIsInitialized(gDevice))
+        return false;
+    if ((mode == MDR_NOISE_MODE_CANCELLING && !FeatureAvailable(MDR_FEATURE_NOISE_CANCELLING)) ||
+        (mode == MDR_NOISE_MODE_AMBIENT && !FeatureAvailable(MDR_FEATURE_AMBIENT_SOUND)))
+        return false;
+    MDRNoiseControl noise{};
+    if (mdrHeadphonesGetNoiseControl(gDevice, MDR_PROPERTY_DESIRED, &noise) != MDR_RESULT_OK)
+        return false;
+    noise.mode = mode;
+    noise.changing_asm_level = MDR_FALSE;
+    // Same rule as the Sound tab: outside ambient mode the device reports level 0, which isn't valid.
+    if (mode == MDR_NOISE_MODE_AMBIENT)
+    {
+        const auto ambientRange = GetRange(MDR_VALUE_AMBIENT_LEVEL_MIN, MDR_VALUE_AMBIENT_LEVEL_MAX);
+        if (ambientRange && static_cast<int>(noise.ambient_level) < ambientRange->min)
+            noise.ambient_level = static_cast<uint32_t>(ambientRange->max);
+    }
+    gWantRedraw = true;
+    return mdrHeadphonesSetNoiseControl(gDevice, &noise) == MDR_RESULT_OK;
 }
 
 void DrawDeviceControls()
