@@ -82,6 +82,13 @@
   - a presença do fone é consultada com `BluetoothGetDeviceInfo`, que lê o cache local do rádio sem inquiry nem paging. A conexão RFCOMM só é tentada quando o Windows já mostra o fone conectado;
   - testado pelo usuário em 11/11/2026: o `settings.ini` foi criado com `last_protocol=v2` e a chave Run aponta para `...\build\client\Release\SonyHeadphonesClient.exe --tray`.
 
+- **Instalação local** (`tooling/install-windows.ps1`):
+  - copia o `.exe` para `%LOCALAPPDATA%\Programs\SonyHeadphonesClient` e confere o SHA-256 da cópia;
+  - cria um atalho no menu Iniciar;
+  - se a entrada Run já existir, aponta para a cópia instalada. Nunca liga o autostart sozinho;
+  - `-Uninstall` desfaz tudo, menos o `settings.ini`;
+  - o `.exe` importa apenas DLLs do sistema (`dumpbin /dependents`: KERNEL32, USER32, ADVAPI32, WS2_32, as api-ms-win-*…), sem runtime do Visual C++ nem DLL do projeto.
+
 ## 5. Pendências
 
 - ⚠️ Conferir o blob da fonte contra o `.ttf`.
