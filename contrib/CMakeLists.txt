@@ -14,8 +14,8 @@ endif ()
 FetchContent_Declare(
         fmt
         GIT_REPOSITORY https://github.com/fmtlib/fmt.git
-        GIT_TAG 12.1.0
-        GIT_SHALLOW TRUE
+        # Pinned to the commit of tag 12.1.0 (tags are mutable; a SHA is not)
+        GIT_TAG 407c905e45ad75fc29bf0f9bb7c5c2fd3475976f
 )
 
 if (MDR_PLATFORM_OS STREQUAL "OHOS")
@@ -28,8 +28,8 @@ else ()
     FetchContent_Declare(
             SDL3
             GIT_REPOSITORY https://github.com/libsdl-org/SDL
-            GIT_TAG release-3.2.26
-            GIT_SHALLOW TRUE
+            # Pinned to the commit of tag release-3.2.26
+            GIT_TAG badbf8da4ee72b3ef599c721ffc9899e8d7c8d90
             PATCH_COMMAND
                 "${GIT_EXECUTABLE}" reset --hard
                 COMMAND "${GIT_EXECUTABLE}" apply "${CMAKE_CURRENT_SOURCE_DIR}/SDL-disable-dynapi.patch"
@@ -39,7 +39,7 @@ endif ()
 FetchContent_Declare(
         imgui
         GIT_REPOSITORY https://github.com/ocornut/imgui
-        GIT_TAG v1.92.7
-        GIT_SHALLOW TRUE
+        # Pinned to the commit of tag v1.92.7
+        GIT_TAG dac07199cfd761113d966eb8ad739254e10df2fe
 )
 
