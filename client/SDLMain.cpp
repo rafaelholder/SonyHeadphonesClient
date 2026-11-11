@@ -274,6 +274,7 @@ namespace
         bool pauseMediaOnRemove{};
         AppLocale locale{AppLocale::DEFAULT};
         bool localeSpecified{};
+        bool startInTray{};
     };
 
     void ShowUsage()
@@ -287,6 +288,7 @@ namespace
         // Windows specific
 #ifdef _WIN32
         usage += "    [-con | --con] Opens a separate console for diagnostic logs\n";
+        usage += "    [--tray] Start hidden in the notification area (used by \"Iniciar com o Windows\")\n";
 #endif
         // Linux specific (DBus)
 #ifdef __linux__
@@ -322,6 +324,11 @@ namespace
             if (std::strcmp(argument, "--pause-media-on-remove") == 0)
             {
                 options.pauseMediaOnRemove = true;
+                continue;
+            }
+            if (std::strcmp(argument, "--tray") == 0)
+            {
+                options.startInTray = true;
                 continue;
             }
 
@@ -432,7 +439,9 @@ int main(int argc, char** argv)
             clientSetAppLocale(GetPreferredAppLocale());
         MDR_LOG("Selected locale: {}", clientGetAppLocale());
         const float displayScale = clientPlatformGetDisplayScale();
-        const SDL_WindowFlags windowFlags = SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY;
+        SDL_WindowFlags windowFlags = SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY;
+        if (options.startInTray)
+            windowFlags |= SDL_WINDOW_HIDDEN; // Shown again below if the tray can't be created.
         if (!clientPlatformInitGraphics(nullptr))
         {
             MDR_LOG("Error: clientPlatformInitGraphics() before device creation: {}", SDL_GetError());
@@ -487,7 +496,11 @@ int main(int argc, char** argv)
             MDR_LOG("Hotkeys: next mode={}, toggle window={}", hotkeys.nextMode, hotkeys.toggleWindow);
         }
         else
+        {
             MDR_LOG("Tray unavailable: {}", SDL_GetError());
+            if (options.startInTray)
+                SDL_ShowWindow(gWindow); // Never leave the app running with no way to reach it.
+        }
 #if MDR_CLIENT_THREADED
         gStopClient = false;
         gClientThread = SDL_CreateThread(RunOnWorkerThread, "client", nullptr);

@@ -26,6 +26,7 @@
 #include "Platform/Platform.hpp"
 #include "I18N/Strings.hpp"
 #include "Tray.hpp"
+#include "Settings.hpp"
 
 static AppLocale gAppLocale = AppLocale::DEFAULT;
 static bool gPlatformFontLoaded = false;
@@ -1093,6 +1094,14 @@ static bool gUsingBLE{};
 static bool gBackendSwitchPending{true};
 static int gConnectionInitResult{MDR_RESULT_INPROGRESS};
 
+/* Auto-connect (rafaelholder fork). Touched only by the worker update and tray calls, both under the worker lock. */
+static ClientSettings gSettings{};
+static bool gAutoAttempt{};    // The current CONNECTING was started by auto-connect, not by the user.
+static bool gAutoSuppressed{}; // User disconnected/cancelled: wait until the OS drops the device before retrying.
+static std::chrono::steady_clock::time_point gNextAutoCheck{};
+constexpr std::chrono::seconds kAutoCheckInterval{3}; // Cheap local OS query, no radio traffic.
+constexpr std::chrono::seconds kAutoRetryDelay{15};   // After an RFCOMM attempt failed while the OS showed it connected.
+
 void RefreshDeviceList()
 {
     MDRConnection* conn = clientPlatformConnectionGet();
@@ -1415,6 +1424,22 @@ void UpdateDeviceConnecting()
         connectionAttempt.lastError.clear();
         CloseDevice();
         const MDRProtocolVersion protocolVersion = ConnectionProtocolVersion();
+        // Remember the device for auto-connect (Classic only: BLE has no OS connection state to watch).
+        gAutoAttempt = false;
+        gAutoSuppressed = false;
+        if (!connectionAttempt.ble && settingsIsValidAddress(connectionAttempt.address.c_str()))
+        {
+            const SavedProtocol protocol =
+                protocolVersion == MDR_PROTOCOL_V1 ? SavedProtocol::V1 : SavedProtocol::V2;
+            if (SDL_strcasecmp(gSettings.lastDevice, connectionAttempt.address.c_str()) != 0 ||
+                gSettings.lastProtocol != protocol)
+            {
+                SDL_strlcpy(gSettings.lastDevice, connectionAttempt.address.c_str(), sizeof(gSettings.lastDevice));
+                gSettings.lastProtocol = protocol;
+                if (!settingsSave(gSettings))
+                    MDR_LOG("Unable to save settings: {}", SDL_GetError());
+            }
+        }
         if (mdrHeadphonesCreate(MDR_ABI_VERSION, conn, protocolVersion, &gDevice) != MDR_RESULT_OK)
         {
             DisconnectWithModal();
@@ -1475,6 +1500,8 @@ void DrawDeviceConnecting()
             mdrConnectionDisconnect(conn);
             connectionAttempt = {};
             connState = CONN_STATE_NO_CONNECTION;
+            gAutoAttempt = false;
+            gAutoSuppressed = true; // Don't immediately start over what the user just cancelled.
         }
         ImGui::EndPopup();
     }
@@ -1506,6 +1533,7 @@ void DrawDeviceControlsHeader()
                 CloseDevice();
                 mdrConnectionDisconnect(conn);
                 connState = CONN_STATE_NO_CONNECTION;
+                gAutoSuppressed = true; // Stay disconnected until the headphones drop off and come back.
             }
             if (FeatureAvailable(MDR_FEATURE_SHUTDOWN))
             {
@@ -2598,6 +2626,82 @@ void UpdateDeviceControls()
     }
 }
 
+bool AutoConnectArmed()
+{
+    return gSettings.autoConnect && gSettings.lastDevice[0] && !gUsingBLE;
+}
+
+// NO_CONNECTION: once the OS reports the saved headphones as connected (A2DP etc.), open the control channel.
+// Polling the OS cache is free; the RFCOMM attempt only happens when the device is actually there,
+// so a powered-off headset never gets paged.
+void UpdateAutoConnect()
+{
+    if (!AutoConnectArmed() || gBackendSwitchPending || gConnectionInitResult != MDR_RESULT_OK)
+        return;
+    const auto now = std::chrono::steady_clock::now();
+    if (now < gNextAutoCheck)
+        return;
+    gNextAutoCheck = now + kAutoCheckInterval;
+
+    int connected = 0;
+#ifdef MDR_PLATFORM_WIN32
+    if (clientPlatformIsBluetoothDeviceConnected(gSettings.lastDevice, &connected) != MDR_RESULT_OK)
+        return;
+#else
+    return; // No cheap presence check on this platform: never auto-page.
+#endif
+    if (!connected)
+    {
+        gAutoSuppressed = false; // Headphones went away: the next time they show up, connect again.
+        return;
+    }
+    if (gAutoSuppressed)
+        return;
+    MDRConnection* conn = clientPlatformConnectionGet();
+    if (!conn)
+        return;
+    const DEVICE_TYPE type = gSettings.lastProtocol == SavedProtocol::V1 ? DEVICE_TYPE_V1
+        : gSettings.lastProtocol == SavedProtocol::V2                    ? DEVICE_TYPE_V2
+                                                                         : DEVICE_TYPE_AUTO;
+    const MDRResult result = StartConnection(conn, gSettings.lastDevice, false, type);
+    if (result == MDR_RESULT_OK || result == MDR_RESULT_INPROGRESS)
+    {
+        MDR_LOG("Auto-connect: connecting to {}", gSettings.lastDevice);
+        connState = CONN_STATE_CONNECTING;
+        gAutoAttempt = true;
+    }
+    else
+    {
+        connectionAttempt = {};
+        gNextAutoCheck = now + kAutoRetryDelay;
+    }
+    gWantRedraw = true;
+}
+
+// DISCONNECTED normally parks on the "Disconnected" modal until the user clicks Reconnect.
+// With auto-connect, a failed automatic attempt or a dropped link to the saved device goes straight
+// back to waiting instead. Failures of attempts the user started by hand still show the modal.
+void RecoverAutoDisconnect(CONN_STATE previous)
+{
+    if (!AutoConnectArmed())
+        return;
+    const bool droppedSaved =
+        previous == CONN_STATE_CONNECTED && SDL_strcasecmp(connectionAttempt.address.c_str(), gSettings.lastDevice) == 0;
+    if (!gAutoAttempt && !droppedSaved)
+        return;
+    MDR_LOG("Auto-connect: {} ({}), waiting for the device", gAutoAttempt ? "attempt failed" : "link lost",
+            connectionAttempt.lastError.empty() ? gHeadphonesError : connectionAttempt.lastError);
+    MDRConnection* conn = clientPlatformConnectionGet();
+    CloseDevice();
+    if (conn)
+        mdrConnectionDisconnect(conn);
+    connectionAttempt = {};
+    connState = CONN_STATE_NO_CONNECTION;
+    gNextAutoCheck = std::chrono::steady_clock::now() + (gAutoAttempt ? kAutoRetryDelay : kAutoCheckInterval);
+    gAutoAttempt = false;
+    gWantRedraw = true;
+}
+
 bool clientOnUpdate()
 {
 #ifdef MDR_CLIENT_DEBUGGER
@@ -2615,6 +2719,7 @@ bool clientOnUpdate()
             break;
 #endif
         UpdateDeviceDiscovery();
+        UpdateAutoConnect();
         break;
     case CONN_STATE_CONNECTING:
         UpdateDeviceConnecting();
@@ -2625,6 +2730,8 @@ bool clientOnUpdate()
     case CONN_STATE_DISCONNECTED:
         break;
     }
+    if (connState == CONN_STATE_DISCONNECTED && lastConnState != CONN_STATE_DISCONNECTED)
+        RecoverAutoDisconnect(lastConnState);
     const bool redraw = gWantRedraw || connState != lastConnState || gDiscoveryPending != lastDiscoveryPending ||
         gDiscoveryDeviceCount != lastDiscoveryDeviceCount;
     gWantRedraw = false;
@@ -2635,6 +2742,11 @@ bool clientOnUpdate()
 void clientGetTrayStatus(ClientTrayStatus& out)
 {
     out = {};
+    out.autoConnect = gSettings.autoConnect;
+    out.hasSavedDevice = gSettings.lastDevice[0] != '\0';
+    out.connecting = connState == CONN_STATE_CONNECTING ||
+        (connState == CONN_STATE_CONNECTED && !(gDevice && mdrHeadphonesIsInitialized(gDevice)));
+    out.waiting = connState == CONN_STATE_NO_CONNECTION && AutoConnectArmed() && !gAutoSuppressed;
     out.connected = connState == CONN_STATE_CONNECTED && gDevice && mdrHeadphonesIsInitialized(gDevice);
     if (!out.connected)
         return;
@@ -2661,6 +2773,18 @@ void clientGetTrayStatus(ClientTrayStatus& out)
     out.hasNoise = (out.canCancel || out.canAmbient) &&
         mdrHeadphonesGetNoiseControl(gDevice, MDR_PROPERTY_DESIRED, &noise) == MDR_RESULT_OK;
     out.noiseMode = noise.mode;
+}
+
+void clientSetAutoConnect(bool enabled)
+{
+    if (gSettings.autoConnect == enabled)
+        return;
+    gSettings.autoConnect = enabled;
+    gAutoSuppressed = false;
+    gNextAutoCheck = {};
+    if (!settingsSave(gSettings))
+        MDR_LOG("Unable to save settings: {}", SDL_GetError());
+    gWantRedraw = true;
 }
 
 bool clientSetNoiseMode(MDRNoiseMode mode)
@@ -2896,6 +3020,7 @@ bool clientInit(float displayScale, const char* fontPath)
     gPlatformFontLoaded = false;
     gEmbeddedFont = nullptr;
     gDefaultFontFallbackPrepared = false;
+    gSettings = settingsLoad();
     if (fontPath)
     {
         void* fontData{};

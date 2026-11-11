@@ -8,6 +8,10 @@ struct SDL_Window;
 
 struct ClientTrayStatus
 {
+    bool autoConnect{};
+    bool hasSavedDevice{};
+    bool waiting{};    // Not connected, auto-connect will pick the saved headphones up when they appear.
+    bool connecting{}; // Control channel being opened / device initializing.
     bool connected{};
     char modelName[64]{};
     bool hasBattery{};
@@ -22,6 +26,7 @@ struct ClientTrayStatus
 // Implemented in Client.cpp. Must be called with the client worker lock held (see SDLMain.cpp).
 extern void clientGetTrayStatus(ClientTrayStatus& out);
 extern bool clientSetNoiseMode(MDRNoiseMode mode);
+extern void clientSetAutoConnect(bool enabled);
 
 // Main thread only. Returns false when the platform has no tray (the app then behaves as before).
 extern bool trayInit(SDL_Window* window);

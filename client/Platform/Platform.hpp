@@ -92,6 +92,16 @@ extern void clientPlatformMemoryUnmapFile(void* addr, size_t size);
      */
 extern int clientPlatformIsLocalBluetoothAddress(const char* address, int* outIsLocal);
 /**
+     * @brief Whether the OS currently holds a Bluetooth connection (e.g. A2DP) to a paired device.
+     *        Reads the local device cache only: no inquiry or paging, so it is cheap to poll.
+     * @param address Text form, "XX:XX:XX:XX:XX:XX", any case.
+     * @param outConnected Receives 1 or 0.
+     * @return MDR_RESULT_OK, MDR_RESULT_ERROR_NOT_FOUND when no radio knows the device,
+     *         or MDR_RESULT_ERROR_NOT_SUPPORTED where the platform cannot tell.
+     * @note Only implemented for Windows (rafaelholder fork, used by auto-connect).
+     */
+extern int clientPlatformIsBluetoothDeviceConnected(const char* address, int* outConnected);
+/**
      * @brief Pause every media player on this computer that is currently playing.
      * @return A record of what was paused, owned by the caller and handed back to
      *         @ref clientPlatformMediaResume, or NULL when nothing was playing or the platform

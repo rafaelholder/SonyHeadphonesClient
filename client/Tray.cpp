@@ -1,4 +1,5 @@
 #include "Tray.hpp"
+#include "Autostart.hpp"
 
 #include <SDL3/SDL.h>
 #include <atomic>
@@ -15,6 +16,10 @@ namespace
     SDL_TrayEntry* gEntryOff{};
     SDL_TrayEntry* gEntryNext{};
     SDL_TrayEntry* gEntryWindow{};
+    SDL_TrayEntry* gEntryAutoConnect{};
+    SDL_TrayEntry* gEntryAutostart{};
+    // -1 none, 0 off, 1 on. Applied under the lock by trayUpdate().
+    std::atomic<int> gRequestedAutoConnect{-1};
 
     // Written by menu callbacks (main thread, outside the worker lock), consumed by trayUpdate().
     // Holds an MDRNoiseMode, kRequestNone, or kRequestNext.
@@ -50,7 +55,8 @@ namespace
 
     bool SameStatus(const ClientTrayStatus& a, const ClientTrayStatus& b)
     {
-        return a.connected == b.connected && a.hasBattery == b.hasBattery && a.batteryPercent == b.batteryPercent &&
+        return a.autoConnect == b.autoConnect && a.hasSavedDevice == b.hasSavedDevice && a.waiting == b.waiting &&
+            a.connecting == b.connecting && a.connected == b.connected && a.hasBattery == b.hasBattery && a.batteryPercent == b.batteryPercent &&
             a.charging == b.charging && a.hasNoise == b.hasNoise && a.canCancel == b.canCancel &&
             a.canAmbient == b.canAmbient && a.noiseMode == b.noiseMode &&
             std::strcmp(a.modelName, b.modelName) == 0;
@@ -106,8 +112,11 @@ namespace
         char text[128];
         if (!status.connected)
         {
-            SDL_snprintf(text, sizeof(text), "Fone desconectado");
-            SDL_SetTrayEntryLabel(gEntryStatus, "Desconectado — abra a janela para conectar");
+            const char* label = status.connecting ? "Conectando ao fone…"
+                : status.waiting                  ? "Aguardando o fone — conecta sozinho"
+                                                  : "Desconectado — abra a janela para conectar";
+            SDL_snprintf(text, sizeof(text), "%s", status.connecting ? "Conectando ao fone…" : "Fone desconectado");
+            SDL_SetTrayEntryLabel(gEntryStatus, label);
             SDL_SetTrayTooltip(gTray, text);
         }
         else
@@ -135,6 +144,9 @@ namespace
         SDL_SetTrayEntryChecked(gEntryCancel, noise && status.noiseMode == MDR_NOISE_MODE_CANCELLING);
         SDL_SetTrayEntryChecked(gEntryAmbient, noise && status.noiseMode == MDR_NOISE_MODE_AMBIENT);
         SDL_SetTrayEntryChecked(gEntryOff, noise && status.noiseMode == MDR_NOISE_MODE_OFF);
+        SDL_SetTrayEntryChecked(gEntryAutoConnect, status.autoConnect);
+        if (gEntryAutostart)
+            SDL_SetTrayEntryChecked(gEntryAutostart, autostartIsEnabled());
 
         if (SDL_Surface* icon = MakeBatteryIcon(status))
         {
@@ -182,6 +194,22 @@ namespace
         return MDR_NOISE_MODE_OFF;
     }
 
+    void SDLCALL OnAutoConnect(void*, SDL_TrayEntry* entry)
+    {
+        // SDL already flipped the checkbox: its new state is what the user asked for.
+        gRequestedAutoConnect = SDL_GetTrayEntryChecked(entry) ? 1 : 0;
+        gForceRefresh = true;
+        Wake();
+    }
+
+    void SDLCALL OnAutostart(void*, SDL_TrayEntry* entry)
+    {
+        // Registry only, no libmdr: safe to do right here, outside the worker lock.
+        if (!autostartSetEnabled(SDL_GetTrayEntryChecked(entry)))
+            SDL_Log("Autostart: unable to update the Run key");
+        SDL_SetTrayEntryChecked(entry, autostartIsEnabled());
+    }
+
     void SDLCALL OnQuit(void*, SDL_TrayEntry*)
     {
         SDL_Event quit{};
@@ -225,6 +253,11 @@ bool trayInit(SDL_Window* window)
                          reinterpret_cast<void*>(static_cast<intptr_t>(MDR_NOISE_MODE_OFF)));
     gEntryNext = AddEntry(menu, "Próximo modo", SDL_TRAYENTRY_BUTTON, OnNext);
     AddEntry(menu, nullptr, SDL_TRAYENTRY_BUTTON); // separator
+    AddEntry(menu, nullptr, SDL_TRAYENTRY_BUTTON); // separator
+    gEntryAutoConnect = AddEntry(menu, "Reconectar automaticamente", SDL_TRAYENTRY_CHECKBOX, OnAutoConnect);
+    if (autostartSupported())
+        gEntryAutostart = AddEntry(menu, "Iniciar com o Windows", SDL_TRAYENTRY_CHECKBOX, OnAutostart);
+    AddEntry(menu, nullptr, SDL_TRAYENTRY_BUTTON); // separator
     gEntryWindow = AddEntry(menu, "Abrir janela", SDL_TRAYENTRY_BUTTON, OnOpen);
     AddEntry(menu, "Sair", SDL_TRAYENTRY_BUTTON, OnQuit);
     gForceRefresh = true;
@@ -239,6 +272,10 @@ void trayUpdate()
 {
     if (!gTray)
         return;
+    const int autoConnect = gRequestedAutoConnect.exchange(-1);
+    if (autoConnect >= 0)
+        clientSetAutoConnect(autoConnect == 1);
+
     ClientTrayStatus status{};
     clientGetTrayStatus(status);
     const int requested = gRequestedMode.exchange(kRequestNone);
@@ -303,4 +340,5 @@ void trayDestroy()
     gTray = nullptr;
     gTrayWindow = nullptr;
     gEntryStatus = gEntryCancel = gEntryAmbient = gEntryOff = gEntryNext = gEntryWindow = nullptr;
+    gEntryAutoConnect = gEntryAutostart = nullptr;
 }

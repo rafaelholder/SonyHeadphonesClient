@@ -137,6 +137,8 @@ target_sources(
         Client.cpp
         Tray.cpp
         Hotkeys.cpp
+        Settings.cpp
+        Autostart.cpp
         Fonts/PlexSansIcon.c
 )
 target_link_libraries(SonyHeadphonesClient PRIVATE Client_I18N)

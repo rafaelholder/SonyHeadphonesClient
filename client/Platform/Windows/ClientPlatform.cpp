@@ -1,6 +1,7 @@
 #include "../Platform.hpp"
 #define NOMINMAX
 #include <Windows.h>
+#include <BluetoothAPIs.h>
 #include <array>
 #include <climits>
 #include <cstdint>
@@ -10,6 +11,59 @@
 #include <mdr-bt/ConnectionWindows.h>
 #include <SDL3/SDL_events.h>
 #include <SDL3/SDL_video.h>
+
+int clientPlatformIsBluetoothDeviceConnected(const char* address, int* outConnected)
+{
+    if (!address || !outConnected)
+        return MDR_RESULT_ERROR_INVALID_ARGUMENT;
+    // "XX:XX:XX:XX:XX:XX" -> 48-bit address, most significant byte first.
+    unsigned long long value = 0;
+    int digits = 0;
+    for (const char* ch = address; *ch; ++ch)
+    {
+        const char c = *ch;
+        int nibble;
+        if (c >= '0' && c <= '9')
+            nibble = c - '0';
+        else if (c >= 'a' && c <= 'f')
+            nibble = c - 'a' + 10;
+        else if (c >= 'A' && c <= 'F')
+            nibble = c - 'A' + 10;
+        else if (c == ':')
+            continue;
+        else
+            return MDR_RESULT_ERROR_INVALID_ARGUMENT;
+        value = (value << 4) | static_cast<unsigned long long>(nibble);
+        ++digits;
+    }
+    if (digits != 12)
+        return MDR_RESULT_ERROR_INVALID_ARGUMENT;
+
+    BLUETOOTH_FIND_RADIO_PARAMS radioParams{sizeof(radioParams)};
+    HANDLE radio{};
+    HBLUETOOTH_RADIO_FIND radioFind = BluetoothFindFirstRadio(&radioParams, &radio);
+    if (!radioFind)
+        return MDR_RESULT_ERROR_NOT_FOUND;
+    bool found = false, connected = false;
+    do
+    {
+        BLUETOOTH_DEVICE_INFO info{sizeof(info)};
+        info.Address.ullLong = value;
+        // Answers from the radio's cache of known (paired/remembered) devices.
+        if (BluetoothGetDeviceInfo(radio, &info) == ERROR_SUCCESS)
+        {
+            found = true;
+            connected = connected || info.fConnected != FALSE;
+        }
+        CloseHandle(radio);
+    }
+    while (BluetoothFindNextRadio(radioFind, &radio));
+    BluetoothFindRadioClose(radioFind);
+    if (!found)
+        return MDR_RESULT_ERROR_NOT_FOUND;
+    *outConnected = connected ? 1 : 0;
+    return MDR_RESULT_OK;
+}
 
 int clientPlatformSaveBlob(const char* filename, const unsigned char* data, size_t dataSize, const char* mimeType,
                            SDL_Window* window, ClientPlatformSaveBlobCallback callback, void* userdata)

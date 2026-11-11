@@ -76,6 +76,11 @@
   - não é hook de teclado (`SetWindowsHookEx`), então não lê outras teclas, só recebe as duas combinações registradas;
   - verificado com o app aberto: registrar as combinações por fora falha com o erro 1409 (já registrado); com o app fechado, ficam livres;
   - testado pelo usuário em 11/11/2026.
+- **Reconexão automática e Iniciar com o Windows** (`client/Settings.*`, `client/Autostart.*`, `UpdateAutoConnect`/`RecoverAutoDisconnect` em `client/Client.cpp`, `clientPlatformIsBluetoothDeviceConnected` em `client/Platform/Windows/ClientPlatform.cpp`). Isto **muda o item 1 da tabela**, porque agora o app grava duas coisas fora do diálogo de "salvar":
+  - o arquivo `%APPDATA%\rafaelholder\SonyHeadphonesClient\settings.ini`, com o endereço Bluetooth do último fone, o protocolo e o liga/desliga da reconexão. Ele é lido com limite de 4 KB e validação do formato do endereço;
+  - o valor `SonyHeadphonesClient` em `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`, **só quando o usuário marca "Iniciar com o Windows"**, e removido quando ele desmarca. É por usuário e não pede administrador;
+  - a presença do fone é consultada com `BluetoothGetDeviceInfo`, que lê o cache local do rádio sem inquiry nem paging. A conexão RFCOMM só é tentada quando o Windows já mostra o fone conectado;
+  - testado pelo usuário em 11/11/2026: o `settings.ini` foi criado com `last_protocol=v2` e a chave Run aponta para `...\build\client\Release\SonyHeadphonesClient.exe --tray`.
 
 ## 5. Pendências
 
