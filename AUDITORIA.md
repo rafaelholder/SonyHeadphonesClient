@@ -71,6 +71,11 @@
   - não abre rede, não executa processos e não grava em disco;
   - os callbacks do menu só gravam em variáveis atômicas, e o acesso ao libmdr acontece sob o `gWorkerMutex` do loop principal (`client/SDLMain.cpp`);
   - testado pelo usuário com o WH-1000XM5 em 11/11/2026.
+- **Atalhos globais** (`client/Hotkeys.cpp`, `client/Hotkeys.hpp`):
+  - `RegisterHotKey`/`UnregisterHotKey` presos ao HWND da janela, mais `SDL_SetWindowsMessageHook` para receber o `WM_HOTKEY`;
+  - não é hook de teclado (`SetWindowsHookEx`), então não lê outras teclas, só recebe as duas combinações registradas;
+  - verificado com o app aberto: registrar as combinações por fora falha com o erro 1409 (já registrado); com o app fechado, ficam livres;
+  - testado pelo usuário em 11/11/2026.
 
 ## 5. Pendências
 

@@ -13,9 +13,14 @@ namespace
     SDL_TrayEntry* gEntryCancel{};
     SDL_TrayEntry* gEntryAmbient{};
     SDL_TrayEntry* gEntryOff{};
+    SDL_TrayEntry* gEntryNext{};
+    SDL_TrayEntry* gEntryWindow{};
 
     // Written by menu callbacks (main thread, outside the worker lock), consumed by trayUpdate().
-    std::atomic<int> gRequestedMode{-1};
+    // Holds an MDRNoiseMode, kRequestNone, or kRequestNext.
+    constexpr int kRequestNone = -1;
+    constexpr int kRequestNext = -2;
+    std::atomic<int> gRequestedMode{kRequestNone};
     std::atomic<bool> gForceRefresh{true};
     ClientTrayStatus gShown{};
 
@@ -126,6 +131,7 @@ namespace
         SDL_SetTrayEntryEnabled(gEntryCancel, noise && status.canCancel);
         SDL_SetTrayEntryEnabled(gEntryAmbient, noise && status.canAmbient);
         SDL_SetTrayEntryEnabled(gEntryOff, noise);
+        SDL_SetTrayEntryEnabled(gEntryNext, noise);
         SDL_SetTrayEntryChecked(gEntryCancel, noise && status.noiseMode == MDR_NOISE_MODE_CANCELLING);
         SDL_SetTrayEntryChecked(gEntryAmbient, noise && status.noiseMode == MDR_NOISE_MODE_AMBIENT);
         SDL_SetTrayEntryChecked(gEntryOff, noise && status.noiseMode == MDR_NOISE_MODE_OFF);
@@ -145,9 +151,35 @@ namespace
         Wake();
     }
 
+    void SDLCALL OnNext(void*, SDL_TrayEntry*)
+    {
+        trayRequestNextMode();
+    }
+
     void SDLCALL OnOpen(void*, SDL_TrayEntry*)
     {
+        // Not a toggle: the open menu always steals focus, so "focused" can't be detected from here.
         trayShowWindow();
+    }
+
+    // Same order as the headphones' NC/AMB button: cancelling -> ambient -> off, skipping unsupported modes.
+    MDRNoiseMode NextMode(const ClientTrayStatus& status)
+    {
+        const MDRNoiseMode cycle[] = {MDR_NOISE_MODE_CANCELLING, MDR_NOISE_MODE_AMBIENT, MDR_NOISE_MODE_OFF};
+        constexpr int count = static_cast<int>(sizeof(cycle) / sizeof(cycle[0]));
+        int current = -1; // Unknown/other modes (e.g. wind reduction) restart the cycle.
+        for (int i = 0; i < count; ++i)
+            if (cycle[i] == status.noiseMode)
+                current = i;
+        for (int step = 1; step <= count; ++step)
+        {
+            const MDRNoiseMode candidate = cycle[(current + step + count) % count];
+            if ((candidate == MDR_NOISE_MODE_CANCELLING && !status.canCancel) ||
+                (candidate == MDR_NOISE_MODE_AMBIENT && !status.canAmbient))
+                continue;
+            return candidate;
+        }
+        return MDR_NOISE_MODE_OFF;
     }
 
     void SDLCALL OnQuit(void*, SDL_TrayEntry*)
@@ -191,8 +223,9 @@ bool trayInit(SDL_Window* window)
                              reinterpret_cast<void*>(static_cast<intptr_t>(MDR_NOISE_MODE_AMBIENT)));
     gEntryOff = AddEntry(menu, ModeLabel(MDR_NOISE_MODE_OFF), SDL_TRAYENTRY_CHECKBOX, OnMode,
                          reinterpret_cast<void*>(static_cast<intptr_t>(MDR_NOISE_MODE_OFF)));
+    gEntryNext = AddEntry(menu, "Próximo modo", SDL_TRAYENTRY_BUTTON, OnNext);
     AddEntry(menu, nullptr, SDL_TRAYENTRY_BUTTON); // separator
-    AddEntry(menu, "Abrir janela", SDL_TRAYENTRY_BUTTON, OnOpen);
+    gEntryWindow = AddEntry(menu, "Abrir janela", SDL_TRAYENTRY_BUTTON, OnOpen);
     AddEntry(menu, "Sair", SDL_TRAYENTRY_BUTTON, OnQuit);
     gForceRefresh = true;
     return true;
@@ -206,12 +239,14 @@ void trayUpdate()
 {
     if (!gTray)
         return;
-    const int requested = gRequestedMode.exchange(-1);
-    if (requested >= 0)
-        clientSetNoiseMode(static_cast<MDRNoiseMode>(requested));
-
     ClientTrayStatus status{};
     clientGetTrayStatus(status);
+    const int requested = gRequestedMode.exchange(kRequestNone);
+    const bool applied =
+        (requested == kRequestNext && status.connected && status.hasNoise && clientSetNoiseMode(NextMode(status))) ||
+        (requested >= 0 && clientSetNoiseMode(static_cast<MDRNoiseMode>(requested)));
+    if (applied)
+        clientGetTrayStatus(status); // DESIRED state now holds the new mode.
     if (!gForceRefresh.exchange(false) && SameStatus(status, gShown))
         return;
     gShown = status;
@@ -233,11 +268,39 @@ void trayShowWindow()
     Wake();
 }
 
+void trayRequestNextMode()
+{
+    gRequestedMode = kRequestNext;
+    gForceRefresh = true;
+    Wake();
+}
+
+void trayToggleWindow()
+{
+    if (!gTrayWindow)
+        return;
+    const SDL_WindowFlags flags = SDL_GetWindowFlags(gTrayWindow);
+    const bool visible = !(flags & (SDL_WINDOW_HIDDEN | SDL_WINDOW_MINIMIZED));
+    if (visible && (flags & SDL_WINDOW_INPUT_FOCUS))
+        SDL_HideWindow(gTrayWindow);
+    else
+        trayShowWindow(); // Hidden, minimized, or behind other windows: bring it to the front.
+}
+
+void traySetShortcutHints(bool nextMode, bool toggleWindow)
+{
+    // A tab in a Win32 menu label right-aligns the text after it, like an accelerator column.
+    if (gEntryNext && nextMode)
+        SDL_SetTrayEntryLabel(gEntryNext, "Próximo modo\tCtrl+Alt+H");
+    if (gEntryWindow && toggleWindow)
+        SDL_SetTrayEntryLabel(gEntryWindow, "Abrir janela\tCtrl+Alt+J");
+}
+
 void trayDestroy()
 {
     if (gTray)
         SDL_DestroyTray(gTray);
     gTray = nullptr;
     gTrayWindow = nullptr;
-    gEntryStatus = gEntryCancel = gEntryAmbient = gEntryOff = nullptr;
+    gEntryStatus = gEntryCancel = gEntryAmbient = gEntryOff = gEntryNext = gEntryWindow = nullptr;
 }

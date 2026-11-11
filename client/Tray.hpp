@@ -29,4 +29,9 @@ extern bool trayInit(SDL_Window* window);
 extern void trayUpdate();
 extern bool trayIsActive();
 extern void trayShowWindow();
+// Main thread, outside the lock (menu / hotkey handlers). Queued and applied by trayUpdate().
+extern void trayRequestNextMode();
+extern void trayToggleWindow();
+// Appends the shortcut text to the matching menu entries (only for shortcuts that registered).
+extern void traySetShortcutHints(bool nextMode, bool toggleWindow);
 extern void trayDestroy();

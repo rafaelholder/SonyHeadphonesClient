@@ -27,6 +27,7 @@
 #include "I18N/Strings.hpp"
 #include "Platform/Platform.hpp"
 #include "Tray.hpp"
+#include "Hotkeys.hpp"
 
 #ifdef __EMSCRIPTEN__
 #include <emscripten.h>
@@ -388,6 +389,7 @@ int main(int argc, char** argv)
         gRendererBackendInitialized = false;
         gPlatformBackendInitialized = false;
         gClientInitialized = false;
+        hotkeysDestroy(); // Before the window: hotkeys are bound to its HWND.
         trayDestroy();
         SDL_DestroyRenderer(gRenderer);
         SDL_DestroyWindow(gWindow);
@@ -477,8 +479,13 @@ int main(int argc, char** argv)
             break;
         }
         if (trayInit(gWindow))
+        {
             // Closing the only window must hide it, not quit (SDL sends SDL_EVENT_QUIT by default).
             SDL_SetHint(SDL_HINT_QUIT_ON_LAST_WINDOW_CLOSE, "0");
+            const HotkeysState hotkeys = hotkeysInit(gWindow);
+            traySetShortcutHints(hotkeys.nextMode, hotkeys.toggleWindow);
+            MDR_LOG("Hotkeys: next mode={}, toggle window={}", hotkeys.nextMode, hotkeys.toggleWindow);
+        }
         else
             MDR_LOG("Tray unavailable: {}", SDL_GetError());
 #if MDR_CLIENT_THREADED
