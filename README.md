@@ -1,123 +1,157 @@
-# SonyHeadphonesClient
+# SonyHeadphonesClient — fork para o WH-1000XM5 no Windows
 
-A spiritual successor to [Plutoberth's original SonyHeadphonesClient](https://github.com/Plutoberth/SonyHeadphonesClient) - now with standardized support for newer devices and more platforms.
+Fork pessoal do [mos9527/SonyHeadphonesClient](https://github.com/mos9527/SonyHeadphonesClient), que por sua vez sucede o [cliente original do Plutoberth](https://github.com/Plutoberth/SonyHeadphonesClient). O objetivo é controlar o **Sony WH-1000XM5** pelo **Windows**: cancelamento de ruído, bateria e equalizador. Para isso, o fork acrescenta ícone na bandeja, atalhos globais, reconexão automática e presets de EQ próprios.
 
-There's no [Release](https://github.com/mos9527/SonyHeadphonesClient/releases) build for this branch yet - but you can always grab the latest [nightly builds](https://nightly.link/mos9527/SonyHeadphonesClient/workflows/cmake/v1-compat?preview), or use the [Web Version](#running-on-the-web).
+O desenvolvimento acontece na branch [`xm5`](https://github.com/rafaelholder/SonyHeadphonesClient/tree/xm5). A `v1-compat` espelha o upstream.
 
-[![Build](https://github.com/mos9527/sonyheadphonesclient/actions/workflows/cmake.yml/badge.svg)](https://github.com/mos9527/SonyHeadphonesClient/actions/workflows/cmake.yml)
-[![Nightly Builds](https://img.shields.io/badge/v1compat-builds-cyan)](https://nightly.link/mos9527/SonyHeadphonesClient/workflows/cmake/v1-compat?preview)
+[![Build](https://github.com/rafaelholder/SonyHeadphonesClient/actions/workflows/cmake.yml/badge.svg?branch=xm5)](https://github.com/rafaelholder/SonyHeadphonesClient/actions/workflows/cmake.yml?query=branch%3Axm5)
 
-![Hero](./docs/images/sc-readme-hero.png)
+![Janela do cliente](./docs/images/sc-readme-hero.png)
 
-## Roadmap
+## O que este fork acrescenta
 
-This branch is expected to be merged/released once general support for *all* legacy (`v1` protocol) devices is reached.
+| Recurso | Como funciona |
+|---|---|
+| **Ícone na bandeja** | Headphone em pixel art, preto com contorno claro (para aparecer na barra escura), e uma barrinha de bateria embaixo: verde acima de 50%, amarela de 21 a 50%, vermelha até 20% e azul carregando. Desconectado, o ícone fica apagado. A dica do mouse mostra modelo, bateria e modo. |
+| **Menu da bandeja** | Troca entre cancelamento de ruído, som ambiente e desligado; Próximo modo; submenu **Equalizador**; Reconectar automaticamente; Iniciar com o Windows; Abrir janela; Sair. |
+| **Fechar para a bandeja** | O X da janela só esconde o app. Para encerrar, use **Sair** no menu. |
+| **Atalhos globais** | **Ctrl+Alt+H**: próximo modo (cancelamento → ambiente → desligado). **Ctrl+Alt+J**: abre a janela, ou esconde se ela estiver em foco. Funcionam com qualquer janela em foco. |
+| **Reconexão automática** | O app lembra o último fone. A cada 3 s pergunta ao Windows se ele está conectado, lendo o cache local do Bluetooth, sem procurar o fone pelo rádio. Quando o Windows conecta o áudio, o app abre o canal de controle sozinho. Se o fone cair, o app volta a esperar em vez de mostrar o aviso de desconectado. |
+| **Iniciar com o Windows** | Opcional, marcado no menu da bandeja. Cria uma entrada por usuário em `HKCU\...\Run` com `--tray` e não precisa de administrador. |
+| **Presets de EQ** | Na aba Som, a seção **Meus presets** aplica, salva o EQ atual com um nome e exclui presets. Os mesmos presets aparecem no submenu Equalizador da bandeja. Ao aplicar, o app coloca o fone no preset manual da Sony e envia as 5 bandas e o Clear Bass. |
+| **Instalação por usuário** | [`tooling/install-windows.ps1`](./tooling/install-windows.ps1) copia o `.exe` para `%LOCALAPPDATA%\Programs` e cria um atalho no menu Iniciar. |
 
-These legacy devices are currently being verified against:
+O controle original continua igual: bateria, cancelamento de ruído e som ambiente com nível, EQ de 5 bandas, Clear Bass, DSEE, desligar o fone e o depurador de protocolo. O multiponto e o Speak-to-Chat existem, mas o upstream ainda não os testou no XM5. A tabela de suporte do XM5 está em [`docs/device-support/WH-1000XM5.md`](./docs/device-support/WH-1000XM5.md).
 
-- [ ] [WH-1000XM2](https://github.com/mos9527/SonyHeadphonesClient/issues/61), pending retest
-- [x] [WH-1000XM3](./docs/device-support/WH-1000XM3.md)
-- [x] WH-1000XM4 (tested by [@Amrsatrio](https://github.com/Amrsatrio))
+### Por que Ctrl+Alt+H e J
 
-Track the progress in [Support for V1/Legacy devices such as XM3s and XM4s - PR #56](https://github.com/mos9527/SonyHeadphonesClient/pull/56).
+No layout **US-Internacional**, Ctrl+Alt equivale a AltGr: AltGr+, gera "ç" e AltGr+N gera "ñ". H e J não geram caractere nenhum no AltGr, então os atalhos não atrapalham a digitação em português. Se outro programa já usar uma das combinações, ela não é registrada e o menu deixa de mostrar a dica dela.
 
-Feel free to submit support status in new Issues regarding v1 (XM4 and older) devices. We *really* need more volunteers :(
+## Instalação
 
-## Platform Support
+Não há release pronta: o `.exe` é compilado a partir deste código. O CI também gera o executável como artefato a cada push (aba [Actions](https://github.com/rafaelholder/SonyHeadphonesClient/actions)).
 
-**NOTE:** These apply to [`libmdr-bt`](./libmdr-bt/) (the Bluetooth platform backend) and [`client`](./client/) (the UI). For [`libmdr`](./libmdr/), the protocol library *itself* is platform agnostic.
+### Requisitos
 
-The architectures (x64, etc) shown here are the ones built by GitHub Actions, and are available in [nightly builds](https://nightly.link/mos9527/SonyHeadphonesClient/workflows/cmake/v1-compat?preview).
+- Windows 10 ou 11 x64, com o fone já pareado em *Configurações › Bluetooth*
+- [CMake](https://cmake.org/) 3.31 ou mais novo
+- Visual Studio Build Tools 2022, com a carga "Desenvolvimento para desktop com C++" e o Windows 11 SDK
 
-| Platform         | Support Status | Maintainers |
-|------------------|----------------|----------------------|
-| Windows (`x86/x64/ARM64`, [Windows XP SP2](#running-compatibility-builds) and up) | Full Support | [@mos9527](https://github.com/mos9527), [@Amrsatrio](https://github.com/Amrsatrio) |
-| Linux  (`x86/x64/ARMv7/ARM64`)| Full Support | [@mos9527](https://github.com/mos9527) |
-| macOS   (Universal) | Full Support | [@mos9527](https://github.com/mos9527) |
-| iOS (`ARM64`, [15.0+](https://github.com/mos9527/SonyHeadphonesClient/pull/70)) | Full Support, [manual build/install required](./DEVELOPER.md#ios-xcode) | [@mos9527](https://github.com/mos9527) |
-| Android (`ARMv7/ARM64`, [5.0+](https://github.com/mos9527/SonyHeadphonesClient/pull/69)) | Supported, `client` only | [@mos9527](https://github.com/mos9527) |
-| Web (`WASM32`, Emscripten) | Full Support | [@mos9527](https://github.com/mos9527) |
-| HarmonyOS (`ARM64`, [OpenHarmony](https://github.com/mos9527/SonyHeadphonesClient/pull/68)) | Supported, `client` only, [manual build required](./DEVELOPER.md#openharmony-deveco-studio) | [@mos9527](https://github.com/mos9527) |
+```powershell
+winget install --id Kitware.CMake --exact
+winget install --id Microsoft.VisualStudio.2022.BuildTools --exact --override "--quiet --wait --add Microsoft.VisualStudio.Workload.VCTools --add Microsoft.VisualStudio.Component.Windows11SDK.26100"
+```
 
-For device support, refer to [`docs/device-support`](./docs/device-support/). If the feature support status for your own device is missing/incorrect/untested there, feel free to submit an [Issue](https://github.com/mos9527/SonyHeadphonesClient/issues/new) so we can work on it!
+### Compilar e instalar
 
-## Running on the Web
+```powershell
+git clone -b xm5 https://github.com/rafaelholder/SonyHeadphonesClient.git
+cd SonyHeadphonesClient
+cmake -S . -B build -G "Visual Studio 17 2022" -A x64 -DMDR_BUILD_CODEGEN=OFF
+cmake --build build --config Release --target SonyHeadphonesClient mdr_tests
+ctest --test-dir build -C Release
+pwsh -File tooling\install-windows.ps1
+```
 
-Besides the broad [native platform support](#platform-support), the client is also available as a Progressive Web App (PWA) with full UI/feature parity with other platforms.
+O script de instalação:
 
-**Live version is available** at: <https://mos9527.com/SonyHeadphonesClient/>
+1. fecha o cliente, se estiver aberto;
+2. copia o `.exe` para `%LOCALAPPDATA%\Programs\SonyHeadphonesClient` e confere o SHA-256 da cópia;
+3. cria um atalho no menu Iniciar;
+4. se o "Iniciar com o Windows" já estiver ligado, aponta a entrada para a cópia instalada (nunca liga essa opção sozinho);
+5. abre o cliente na bandeja.
 
-A [Web Serial](https://caniuse.com/web-serial)-supporting browser is required. You can expect the app to work on:
+Rode o script de novo depois de cada recompilação. Use `-NoStart` para não abrir o cliente ao final e `-Uninstall` para remover o programa, o atalho e a entrada de inicialização (o `settings.ini` é mantido).
 
-- Desktop Chrome (89+), and Chromium derivatives (also 89+, e.g. Edge, Opera)
-- [Android Chrome (148+)](https://chromestatus.com/feature/6043992171085824)
-- [Desktop Firefox (151+)](https://hacks.mozilla.org/2026/05/web-serial-support-in-firefox/)
+O `.exe` só importa DLLs do próprio Windows. Não precisa do runtime do Visual C++.
 
-## Running Compatibility Builds
+### Primeiro uso
 
-Compatibility builds are offered for certain platforms, where limited sets of features are made available to make it run there. These builds are suffixed with `-compatibility`, and are available in [nightly](https://nightly.link/mos9527/SonyHeadphonesClient/workflows/cmake/v1-compat?preview) and [Releases (TBD)](https://github.com/mos9527/SonyHeadphonesClient/releases).
+1. Abra o cliente e conecte o WH-1000XM5 pela janela. Isso salva o fone para a reconexão automática.
+2. Se quiser, marque **Iniciar com o Windows** no menu da bandeja.
+3. A partir daí, o app sobe na bandeja e conecta sozinho sempre que o Windows conectar o fone.
 
-Currently, the following compatibility builds are available.
+Feche o app da Sony no celular enquanto usa o cliente no PC, para os dois não disputarem o canal de controle.
 
-### Windows Compatibility Builds
+## Linha de comando
 
-Available as `SonyHeadphonesClient-win-x64-compatibility.exe` and `SonyHeadphonesClient-win-x86-compatibility.exe` in the CI. See [SHC Developer's Guide](./DEVELOPER.md#windows) for build flags.
+| Opção | Efeito |
+|---|---|
+| `--tray` | Inicia escondido na bandeja. É o que o "Iniciar com o Windows" usa. Se a bandeja não puder ser criada, a janela aparece normalmente. |
+| `--con` | Abre um console com o log de diagnóstico. |
+| `--locale <default\|sc\|tc\|jp\|kr>` | Força o idioma da interface (do upstream). |
+| `--font <arquivo>` | Usa uma fonte externa (do upstream). |
+| `-h`, `--help` | Mostra a ajuda. |
 
-These builds lower the minimal required Windows version from Windows 8.1 in the regular builds to Windows XP SP2.
+## Onde ficam os dados
 
-- This build has no Bluetooth LE support, which is only introduced in [Windows 8.1 and above](https://learn.microsoft.com/en-us/windows-hardware/drivers/bluetooth/bluetooth-support-in-previous-windows-versions).  
-- Threading is disabled in this build, see [e636d54](https://github.com/mos9527/SonyHeadphonesClient/commit/e636d54f039e85d9d915b0dc050968ffc18e25b6).
-- [YY-Thunks](https://github.com/Chuyu-Team/YY-Thunks) is used to provide compatibility for Windows XP. Otherwise this would've been limited for Windows 7 and above.
+| O quê | Onde |
+|---|---|
+| Programa instalado | `%LOCALAPPDATA%\Programs\SonyHeadphonesClient\SonyHeadphonesClient.exe` |
+| Configurações | `%APPDATA%\rafaelholder\SonyHeadphonesClient\settings.ini` |
+| Iniciar com o Windows | Valor `SonyHeadphonesClient` em `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`, só quando marcado |
 
-## Fonts & Localization
+O `settings.ini` é texto puro e pode ser editado com o app fechado:
 
-The Client app uses your system's locale settings to select its application locale (`AppLocale`) and the default font your OS provides.
+```ini
+last_device=XX:XX:XX:XX:XX:XX
+last_protocol=v2
+auto_connect=1
+eq_presets_initialized=1
+# eq_preset=<nome>|<clear bass>|<banda 1>,<banda 2>,...
+eq_preset=Plano|0|0,0,0,0,0
+eq_preset=Graves|6|2,0,0,0,0
+eq_preset=Voz e podcast|-2|-2,1,3,2,0
+eq_preset=Jogos (passos)|-3|-3,-1,2,4,2
+```
 
-Locale can be overridden by using `--locale <locale>`.
+No XM5, as bandas são 400 Hz, 1 kHz, 2,5 kHz, 6,3 kHz e 16 kHz, e o app ajusta os valores ao limite que o fone informa. Os quatro presets iniciais são só ponto de partida e não foram afinados de ouvido. Linhas malformadas são ignoradas, com limite de 16 presets e 10 bandas.
 
-- For the Web version, this can be manually specified in the URL via `...?locale=jp`, e.g. `https://mos9527.com/SonyHeadphonesClient/?locale=jp`.
+## Segurança
 
-The following locales are supported:
+Antes de qualquer mudança, o código do upstream foi auditado (escopo: o build Windows). O relatório, com evidências e os comandos para reproduzir, está em [`AUDITORIA.md`](./AUDITORIA.md). Em resumo:
 
-| Locale | Language | Localizer |
-| ------ | -------- | --------- |
-| default | Default (English) | - |
-| en | Default (English) | - |
-| sc | 简体中文/Simplified Chinese | [@mos9527](https://github.com/mos9527) |
-| tc | 繁体中文/Traditional Chinese | [@mos9527](https://github.com/mos9527) |
-| jp | 日本語/Japanese | TBD |
-| kr | 한국어/Korean | TBD |
+- **Rede:** só Bluetooth (socket RFCOMM com autenticação e criptografia). Não há HTTP nem telemetria.
+- **Sistema:** o app não executa outros programas, não injeta código e não usa hook de teclado. Os atalhos usam `RegisterHotKey`, que só recebe as duas combinações registradas.
+- **Gravações:** só o `settings.ini`, a entrada `Run` (quando você marca a opção) e os arquivos que você mandar salvar.
+- **Dependências:** SDL, ImGui e fmt são baixados no build fixados pelo commit exato, e não pela tag.
+- **CI do fork:**
+  - só verificação de formatação e código gerado, build Windows x64 e testes;
+  - actions fixadas por SHA e permissão só de leitura;
+  - sem deploy no GitHub Pages.
 
-Additionally, for the Desktop (non-Web) client, `--font <file-path>` optionally loads an external font instead of the default font selected for the locale.
+## Compatibilidade
 
-- Running `./SonyHeadphonesClient.exe --locale jp --font NotoSansCJKjp-Regular.otf` selects the Japanese application locale and the specified Noto Sans font.
+- **Testado:** WH-1000XM5 no Windows 11 x64.
+- **Outros fones Sony:** o protocolo vem do upstream e deve funcionar, mas os recursos deste fork não foram testados com eles. A troca de modo, por exemplo, segue o que o fone informa que suporta.
+- **Outras plataformas:** Linux, macOS, Android, iOS e Web continuam no código do upstream. Este fork não compila nem testa essas plataformas, e a bandeja, os atalhos, o autostart e a reconexão automática só existem no Windows. Para elas, use o [upstream](https://github.com/mos9527/SonyHeadphonesClient).
 
-## For Developers
+## Sincronizar com o upstream
 
-See the [SHC Developer's Guide](./DEVELOPER.md) for [building instructions](./DEVELOPER.md#building) and development details.
+```bash
+git fetch upstream
+git diff xm5...upstream/v1-compat --stat
+git merge upstream/v1-compat
+```
 
-See also [Contributing](./.github/CONTRIBUTING.md) for basic guidelines.
+Antes do merge, revise o diff do upstream com os mesmos critérios do [`AUDITORIA.md`](./AUDITORIA.md). Se o `contrib/CMakeLists.txt` do upstream mudar de versão de dependência, fixe o novo commit por SHA.
 
-Extensive documentation is also available in the source files. Refer to the respective README files in each source folder to understand what they do!
+## Para desenvolvedores
 
-## Platform Quirks
+- [`client/Tray.cpp`](./client/Tray.cpp): bandeja, ícone e submenu de EQ, via `SDL_tray` do SDL já fixado.
+- [`client/Hotkeys.cpp`](./client/Hotkeys.cpp): atalhos globais.
+- [`client/Settings.cpp`](./client/Settings.cpp): leitura e gravação do `settings.ini`.
+- [`client/Autostart.cpp`](./client/Autostart.cpp): entrada de "Iniciar com o Windows".
+- Em [`client/Client.cpp`](./client/Client.cpp): reconexão automática (`UpdateAutoConnect`, `RecoverAutoDisconnect`) e presets (`clientApplyEqPreset`).
+- [`tooling/make-pixel-icon.py`](./tooling/make-pixel-icon.py): gera o `app.ico` (só biblioteca padrão). Mantenha o desenho igual ao `kHeadphoneSprite` em `client/Tray.cpp`.
+- O CI exige o **clang-format 22.1.8**: `uv run --no-project --with clang-format==22.1.8 clang-format -i <arquivos>`.
 
-### Linux
+Detalhes de arquitetura, do protocolo MDR e do build das outras plataformas estão no [SHC Developer's Guide](./DEVELOPER.md) do upstream.
 
-On Linux, you may not see player metadata (track title, artist, etc.) despite correct output from the `playerctl metadata` command,
-while your device has proper AVRCP support (e.g. it works on other platforms).
+## Créditos e licença
 
-This mostly occurs with multipoint setups, and is mostly an implementation problem.
+- Código base: [mos9527](https://github.com/mos9527/SonyHeadphonesClient) e colaboradores, sobre o trabalho do [Plutoberth](https://github.com/Plutoberth/SonyHeadphonesClient).
+- Licença [MIT](./LICENSE), mantida neste fork.
+- Os recursos deste fork foram desenvolvidos com auxílio do Claude Code. Os commits trazem o crédito de coautoria.
 
-- You (or your distro) may have a misconfigured [MPRIS](https://wiki.archlinux.org/title/MPRIS) service. One way to remedy this
-  is to manually run `mpris-proxy` (available in the `bluez-tools`/`bluez-utils` package) in the background, or as a systemd service.
-- See also
-  - <https://wiki.archlinux.org/title/MPRIS>
-  - <https://github.com/bluez/bluez/issues/868>
-  - [#65](https://github.com/mos9527/SonyHeadphonesClient/pull/65)
-- Alternatively, the Linux Client App can be used as a fallback. This was introduced in [#63](https://github.com/mos9527/SonyHeadphonesClient/pull/63), where the wearing status of the device is used to control the host player status, thus bypassing AVRCP controls.
-- This is disabled by default. You can enable it via the `--pause-media-on-remove` flag when launching the Client App. Thanks @phedoreanu for the implementation!
-
----
-
-*This is a personal project, and is not officially endorsed by Sony Corporation in any capacity.*
+*Projeto pessoal, sem qualquer vínculo com a Sony Corporation nem endosso dela.*
