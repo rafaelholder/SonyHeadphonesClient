@@ -1096,11 +1096,11 @@ static int gConnectionInitResult{MDR_RESULT_INPROGRESS};
 
 /* Auto-connect (rafaelholder fork). Touched only by the worker update and tray calls, both under the worker lock. */
 static ClientSettings gSettings{};
-static bool gAutoAttempt{};    // The current CONNECTING was started by auto-connect, not by the user.
+static bool gAutoAttempt{}; // The current CONNECTING was started by auto-connect, not by the user.
 static bool gAutoSuppressed{}; // User disconnected/cancelled: wait until the OS drops the device before retrying.
 static std::chrono::steady_clock::time_point gNextAutoCheck{};
 constexpr std::chrono::seconds kAutoCheckInterval{3}; // Cheap local OS query, no radio traffic.
-constexpr std::chrono::seconds kAutoRetryDelay{15};   // After an RFCOMM attempt failed while the OS showed it connected.
+constexpr std::chrono::seconds kAutoRetryDelay{15}; // After an RFCOMM attempt failed while the OS showed it connected.
 
 /* User EQ presets (rafaelholder fork), stored in gSettings. Same locking rules as above. */
 static uint32_t gEqPresetsVersion{1}; // Bumped on add/delete so the tray rebuilds its submenu.
@@ -1147,8 +1147,8 @@ int MatchingEqPreset()
     const auto bands = GetEqualizerBands(MDR_PROPERTY_DESIRED);
     const bool hasClearBass =
         GetRange(MDR_VALUE_EQUALIZER_CLEAR_BASS_MIN, MDR_VALUE_EQUALIZER_CLEAR_BASS_MAX).has_value();
-    const auto bandRange = GetRange(MDR_VALUE_EQUALIZER_BAND_MIN, MDR_VALUE_EQUALIZER_BAND_MAX,
-                                    static_cast<uint32_t>(bands.size()));
+    const auto bandRange =
+        GetRange(MDR_VALUE_EQUALIZER_BAND_MIN, MDR_VALUE_EQUALIZER_BAND_MAX, static_cast<uint32_t>(bands.size()));
     const auto clearBassRange = GetRange(MDR_VALUE_EQUALIZER_CLEAR_BASS_MIN, MDR_VALUE_EQUALIZER_CLEAR_BASS_MAX);
     for (int i = 0; i < gSettings.eqPresetCount; ++i)
     {
@@ -1175,8 +1175,8 @@ bool clientApplyEqPreset(int index)
     const MDREqualizerPreset target = TargetCustomPreset(equalizer.preset);
     if (target != equalizer.preset && mdrHeadphonesSetEqualizerPreset(gDevice, target) != MDR_RESULT_OK)
         return false;
-    const auto bandRange = GetRange(MDR_VALUE_EQUALIZER_BAND_MIN, MDR_VALUE_EQUALIZER_BAND_MAX,
-                                    static_cast<uint32_t>(preset.bandCount));
+    const auto bandRange =
+        GetRange(MDR_VALUE_EQUALIZER_BAND_MIN, MDR_VALUE_EQUALIZER_BAND_MAX, static_cast<uint32_t>(preset.bandCount));
     mdr::Vector<int32_t> bands;
     for (int b = 0; b < preset.bandCount; ++b)
         bands.push_back(ClampTo(preset.bands[b], bandRange));
@@ -1582,8 +1582,7 @@ void UpdateDeviceConnecting()
         gAutoSuppressed = false;
         if (!connectionAttempt.ble && settingsIsValidAddress(connectionAttempt.address.c_str()))
         {
-            const SavedProtocol protocol =
-                protocolVersion == MDR_PROTOCOL_V1 ? SavedProtocol::V1 : SavedProtocol::V2;
+            const SavedProtocol protocol = protocolVersion == MDR_PROTOCOL_V1 ? SavedProtocol::V1 : SavedProtocol::V2;
             if (SDL_strcasecmp(gSettings.lastDevice, connectionAttempt.address.c_str()) != 0 ||
                 gSettings.lastProtocol != protocol)
             {
@@ -2873,8 +2872,8 @@ void RecoverAutoDisconnect(CONN_STATE previous)
 {
     if (!AutoConnectArmed())
         return;
-    const bool droppedSaved =
-        previous == CONN_STATE_CONNECTED && SDL_strcasecmp(connectionAttempt.address.c_str(), gSettings.lastDevice) == 0;
+    const bool droppedSaved = previous == CONN_STATE_CONNECTED &&
+        SDL_strcasecmp(connectionAttempt.address.c_str(), gSettings.lastDevice) == 0;
     if (!gAutoAttempt && !droppedSaved)
         return;
     MDR_LOG("Auto-connect: {} ({}), waiting for the device", gAutoAttempt ? "attempt failed" : "link lost",

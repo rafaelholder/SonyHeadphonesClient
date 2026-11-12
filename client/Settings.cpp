@@ -244,8 +244,8 @@ bool settingsSave(const ClientSettings& settings)
         char bands[kMaxEqBands * 5 + 1]{};
         size_t used = 0;
         for (int b = 0; b < preset.bandCount; ++b)
-            used += static_cast<size_t>(SDL_snprintf(bands + used, sizeof(bands) - used, b ? ",%d" : "%d",
-                                                     static_cast<int>(preset.bands[b])));
+            used += static_cast<size_t>(
+                SDL_snprintf(bands + used, sizeof(bands) - used, b ? ",%d" : "%d", static_cast<int>(preset.bands[b])));
         char* next{};
         if (SDL_asprintf(&next, "%seq_preset=%s|%d|%s\n", text, preset.name, static_cast<int>(preset.clearBass),
                          bands) < 0)

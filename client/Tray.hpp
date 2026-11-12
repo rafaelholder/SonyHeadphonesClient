@@ -10,7 +10,7 @@ struct ClientTrayStatus
 {
     bool autoConnect{};
     bool hasSavedDevice{};
-    bool waiting{};    // Not connected, auto-connect will pick the saved headphones up when they appear.
+    bool waiting{}; // Not connected, auto-connect will pick the saved headphones up when they appear.
     bool connecting{}; // Control channel being opened / device initializing.
     bool connected{};
     char modelName[64]{};
@@ -21,9 +21,9 @@ struct ClientTrayStatus
     bool canCancel{};
     bool canAmbient{};
     MDRNoiseMode noiseMode{MDR_NOISE_MODE_OFF};
-    bool eqUsable{};         // Device has an equalizer and it is usable right now.
-    uint32_t eqBandCount{};  // Current band layout; presets saved for another layout are greyed out.
-    int eqActive{-1};        // User preset matching the device's EQ, or -1.
+    bool eqUsable{}; // Device has an equalizer and it is usable right now.
+    uint32_t eqBandCount{}; // Current band layout; presets saved for another layout are greyed out.
+    int eqActive{-1}; // User preset matching the device's EQ, or -1.
 };
 
 // Implemented in Client.cpp. Must be called with the client worker lock held (see SDLMain.cpp).

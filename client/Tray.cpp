@@ -67,10 +67,10 @@ namespace
     bool SameStatus(const ClientTrayStatus& a, const ClientTrayStatus& b)
     {
         return a.autoConnect == b.autoConnect && a.hasSavedDevice == b.hasSavedDevice && a.waiting == b.waiting &&
-            a.connecting == b.connecting && a.connected == b.connected && a.hasBattery == b.hasBattery && a.batteryPercent == b.batteryPercent &&
-            a.charging == b.charging && a.hasNoise == b.hasNoise && a.canCancel == b.canCancel &&
-            a.canAmbient == b.canAmbient && a.noiseMode == b.noiseMode && a.eqUsable == b.eqUsable &&
-            a.eqBandCount == b.eqBandCount && a.eqActive == b.eqActive &&
+            a.connecting == b.connecting && a.connected == b.connected && a.hasBattery == b.hasBattery &&
+            a.batteryPercent == b.batteryPercent && a.charging == b.charging && a.hasNoise == b.hasNoise &&
+            a.canCancel == b.canCancel && a.canAmbient == b.canAmbient && a.noiseMode == b.noiseMode &&
+            a.eqUsable == b.eqUsable && a.eqBandCount == b.eqBandCount && a.eqActive == b.eqActive &&
             std::strcmp(a.modelName, b.modelName) == 0;
     }
 

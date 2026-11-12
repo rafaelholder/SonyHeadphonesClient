@@ -91,6 +91,11 @@
   - a janela recebe o ícone por `SDL_SetWindowIcon` (`WM_SETICON`), em 6 tamanhos;
   - na bandeja, o ícone mantém a barra de bateria;
   - verificado pelo `WM_GETICON` da janela e pelo usuário na barra de tarefas em 11/11/2026.
+- **CI do fork** (`.github/workflows/cmake.yml`), que resolve os itens **S3** e **S4**:
+  - ficaram só o `pre-check` (clang-format, headers renderizados e codegen) e o build Windows x64 com os testes;
+  - saíram o deploy no GitHub Pages, a versão Web, Android, iOS, macOS, Linux e as demais variantes de Windows;
+  - as actions estão fixadas por SHA e o workflow só tem permissão de leitura (`permissions: contents: read`);
+  - o código do fork foi formatado com o clang-format 22.1.8, a mesma versão do CI, e o repositório inteiro passa no `--dry-run --Werror`.
 - **Instalação local** (`tooling/install-windows.ps1`):
   - copia o `.exe` para `%LOCALAPPDATA%\Programs\SonyHeadphonesClient` e confere o SHA-256 da cópia;
   - cria um atalho no menu Iniciar;

@@ -34,8 +34,7 @@ bool autostartIsEnabled()
         return false;
     wchar_t current[MAX_PATH + 16]{};
     DWORD size = sizeof(current);
-    if (RegGetValueW(HKEY_CURRENT_USER, kRunKey, kValueName, RRF_RT_REG_SZ, nullptr, current, &size) !=
-        ERROR_SUCCESS)
+    if (RegGetValueW(HKEY_CURRENT_USER, kRunKey, kValueName, RRF_RT_REG_SZ, nullptr, current, &size) != ERROR_SUCCESS)
         return false;
     return _wcsicmp(current, expected) == 0;
 }
