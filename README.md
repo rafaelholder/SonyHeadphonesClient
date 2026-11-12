@@ -19,7 +19,7 @@ O desenvolvimento acontece na branch [`xm5`](https://github.com/rafaelholder/Son
 | **Reconexão automática** | O app lembra o último fone. A cada 3 s pergunta ao Windows se ele está conectado, lendo o cache local do Bluetooth, sem procurar o fone pelo rádio. Quando o Windows conecta o áudio, o app abre o canal de controle sozinho. Se o fone cair, o app volta a esperar em vez de mostrar o aviso de desconectado. |
 | **Iniciar com o Windows** | Opcional, marcado no menu da bandeja. Cria uma entrada por usuário em `HKCU\...\Run` com `--tray` e não precisa de administrador. |
 | **Presets de EQ** | Na aba Som, a seção **Meus presets** aplica, salva o EQ atual com um nome e exclui presets. Os mesmos presets aparecem no submenu Equalizador da bandeja. Ao aplicar, o app coloca o fone no preset manual da Sony e envia as 5 bandas e o Clear Bass. |
-| **Instalação por usuário** | [`tooling/install-windows.ps1`](./tooling/install-windows.ps1) copia o `.exe` para `%LOCALAPPDATA%\Programs` e cria um atalho no menu Iniciar. |
+| **Instalador e desinstalador** | `Setup.exe` feito com Inno Setup ([`installer/`](./installer/SonyHeadphonesClient.iss)): instala por usuário, sem administrador, e aparece em *Aplicativos* com desinstalador. Para desenvolvimento há também [`tooling/install-windows.ps1`](./tooling/install-windows.ps1). |
 
 O controle original continua igual: bateria, cancelamento de ruído e som ambiente com nível, EQ de 5 bandas, Clear Bass, DSEE, desligar o fone e o depurador de protocolo. O multiponto e o Speak-to-Chat existem, mas o upstream ainda não os testou no XM5. A tabela de suporte do XM5 está em [`docs/device-support/WH-1000XM5.md`](./docs/device-support/WH-1000XM5.md).
 
@@ -29,7 +29,21 @@ No layout **US-Internacional**, Ctrl+Alt equivale a AltGr: AltGr+, gera "ç" e A
 
 ## Instalação
 
-Não há release pronta: o `.exe` é compilado a partir deste código. O CI também gera o executável como artefato a cada push (aba [Actions](https://github.com/rafaelholder/SonyHeadphonesClient/actions)).
+### Pelo instalador (recomendado)
+
+O CI gera a cada push um `SonyHeadphonesClient-Setup-<versão>-x64.exe`, disponível como artefato **SonyHeadphonesClient-Setup-win-x64** na aba [Actions](https://github.com/rafaelholder/SonyHeadphonesClient/actions). Para gerar localmente, use `tooling/build-installer.ps1` (veja abaixo).
+
+- **Sem administrador:** instala só para o seu usuário em `%LOCALAPPDATA%\Programs\SonyHeadphonesClient`, com atalho no menu Iniciar.
+- **Opções do assistente:** atalho na área de trabalho e **Iniciar com o Windows**. A caixa já vem marcada se o autostart estiver ligado, e desmarcar desliga.
+- **Atualizar:** rode um instalador mais novo por cima. Ele fecha o app aberto e mantém o fone salvo e os presets.
+- **Desinstalar:** em *Configurações › Aplicativos › SonyHeadphonesClient (WH-1000XM5)*. O desinstalador fecha o app e remove o programa, os atalhos e o "Iniciar com o Windows". Depois pergunta se deve apagar também o `settings.ini`; a resposta padrão é manter.
+- **Modo silencioso:** use `/VERYSILENT /TASKS=autostart`. Uma desinstalação silenciosa (`unins000.exe /VERYSILENT`) mantém as configurações.
+
+⚠️ O instalador não tem assinatura digital, então o SmartScreen mostra "O Windows protegeu o computador" na primeira vez. Para seguir, clique em *Mais informações › Executar assim mesmo*.
+
+### Compilando você mesmo
+
+O `.exe` é compilado a partir deste código, e o CI também gera o executável solto como artefato a cada push.
 
 ### Requisitos
 
@@ -42,7 +56,7 @@ winget install --id Kitware.CMake --exact
 winget install --id Microsoft.VisualStudio.2022.BuildTools --exact --override "--quiet --wait --add Microsoft.VisualStudio.Workload.VCTools --add Microsoft.VisualStudio.Component.Windows11SDK.26100"
 ```
 
-### Compilar e instalar
+### Compilar, testar e instalar
 
 ```powershell
 git clone -b xm5 https://github.com/rafaelholder/SonyHeadphonesClient.git
@@ -64,6 +78,13 @@ O script de instalação:
 Rode o script de novo depois de cada recompilação. Use `-NoStart` para não abrir o cliente ao final e `-Uninstall` para remover o programa, o atalho e a entrada de inicialização (o `settings.ini` é mantido).
 
 O `.exe` só importa DLLs do próprio Windows. Não precisa do runtime do Visual C++.
+
+Para gerar o instalador a partir do `.exe` compilado, instale o [Inno Setup 6](https://jrsoftware.org/isinfo.php) e rode o script. O resultado sai em `build\installer\`. A definição do instalador fica em [`installer/SonyHeadphonesClient.iss`](./installer/SonyHeadphonesClient.iss), que precisa ficar salvo em UTF-8 com BOM, senão os acentos das mensagens se perdem.
+
+```powershell
+winget install --id JRSoftware.InnoSetup --exact
+pwsh -File tooling\build-installer.ps1
+```
 
 ### Primeiro uso
 

@@ -96,6 +96,16 @@
   - saíram o deploy no GitHub Pages, a versão Web, Android, iOS, macOS, Linux e as demais variantes de Windows;
   - as actions estão fixadas por SHA e o workflow só tem permissão de leitura (`permissions: contents: read`);
   - o código do fork foi formatado com o clang-format 22.1.8, a mesma versão do CI, e o repositório inteiro passa no `--dry-run --Werror`.
+- **Instalador Inno Setup** (`installer/SonyHeadphonesClient.iss`, `tooling/build-installer.ps1`, passo no CI):
+  - instala por usuário (`PrivilegesRequired=lowest`) em `%LOCALAPPDATA%\Programs\SonyHeadphonesClient`, com o `LICENSE.txt` exigido pelo MIT;
+  - o código Pascal do instalador só: encerra o cliente com `taskkill /F /IM SonyHeadphonesClient.exe`, grava ou remove o valor `Run` e, na desinstalação com tela, oferece apagar `%APPDATA%\rafaelholder\SonyHeadphonesClient` (a resposta padrão é Não);
+  - testado em 11/11/2026 em modo silencioso:
+    1. instalação: arquivos, entrada em Aplicativos (`HKCU\...\Uninstall\{833ABAFA-…}_is1`), atalho e `Run` corretos;
+    2. desinstalação com o app aberto: o processo foi encerrado e pasta, atalho, `Run` e entrada em Aplicativos foram removidos, com o `settings.ini` mantido;
+    3. reinstalação com autostart: funcionou.
+  - um bug foi achado e corrigido nesses testes: o `CurPageChanged` também roda no modo silencioso e desmarcava o `/TASKS=autostart`;
+  - ⚠️ o assistente com tela e a pergunta de apagar as configurações ficaram para o usuário testar;
+  - o instalador não tem assinatura digital, então o SmartScreen avisa na primeira execução.
 - **Instalação local** (`tooling/install-windows.ps1`):
   - copia o `.exe` para `%LOCALAPPDATA%\Programs\SonyHeadphonesClient` e confere o SHA-256 da cópia;
   - cria um atalho no menu Iniciar;
