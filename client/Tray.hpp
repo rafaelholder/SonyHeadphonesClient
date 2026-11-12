@@ -37,6 +37,8 @@ extern const char* clientGetEqPresetName(int index);
 extern int clientGetEqPresetBandCount(int index);
 extern bool clientApplyEqPreset(int index);
 
+// Main thread. Sets the pixel-art headphone as the window (title bar / taskbar) icon.
+extern void traySetWindowIcon(SDL_Window* window);
 // Main thread only. Returns false when the platform has no tray (the app then behaves as before).
 extern bool trayInit(SDL_Window* window);
 // Main thread, with the client worker lock held: applies pending menu actions and refreshes icon/menu.

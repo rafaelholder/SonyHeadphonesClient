@@ -3,6 +3,7 @@
 #include "Settings.hpp"
 
 #include <SDL3/SDL.h>
+#include <algorithm>
 #include <atomic>
 #include <cstdint>
 #include <cstring>
@@ -73,29 +74,70 @@ namespace
             std::strcmp(a.modelName, b.modelName) == 0;
     }
 
-    // Draws a battery glyph: outline + fill proportional to the level.
-    // Green > 50%, yellow 21-50%, red <= 20%, blue while charging, outline only when disconnected.
-    SDL_Surface* MakeBatteryIcon(const ClientTrayStatus& status)
+    // 16x16 pixel-art headphone, drawn at 2x. Keep in sync with tooling/make-pixel-icon.py (app.ico).
+    constexpr int kSpriteSize = 16;
+    constexpr const char* kHeadphoneSprite[kSpriteSize] = {
+        "................", //
+        ".....######.....", //
+        "...##......##...", //
+        "..#..........#..", //
+        ".#............#.", //
+        ".#............#.", //
+        ".#............#.", //
+        "###..........###", //
+        "####........####", //
+        "####........####", //
+        "####........####", //
+        "####........####", //
+        ".###........###.", //
+        "................", //
+        "................", //
+        "................", //
+    };
+
+    // `size` must be a multiple of kSpriteSize (nearest-neighbour scale keeps the pixels crisp).
+    bool SpritePixel(int x, int y, int size)
+    {
+        const int scale = size / kSpriteSize;
+        if (x < 0 || y < 0 || x >= size || y >= size)
+            return false;
+        return kHeadphoneSprite[y / scale][x / scale] == '#';
+    }
+
+    // Black headphone + light outline, same rule as tooling/make-pixel-icon.py: outline = max(1, scale / 2) px.
+    void DrawHeadphone(SDL_Surface* surface, int size, Uint8 alpha)
+    {
+        const int outline = std::max(1, size / kSpriteSize / 2);
+        for (int y = 0; y < size; ++y)
+            for (int x = 0; x < size; ++x)
+            {
+                if (SpritePixel(x, y, size))
+                {
+                    SDL_WriteSurfacePixel(surface, x, y, 0, 0, 0, alpha);
+                    continue;
+                }
+                bool edge = false;
+                for (int dy = -outline; dy <= outline && !edge; ++dy)
+                    for (int dx = -outline; dx <= outline && !edge; ++dx)
+                        edge = SpritePixel(x + dx, y + dy, size);
+                if (edge)
+                    SDL_WriteSurfacePixel(surface, x, y, 235, 235, 235, alpha);
+            }
+    }
+
+    // Black pixel-art headphone with a 1px light outline (the Windows 11 taskbar here is dark, and plain black
+    // would vanish on it), plus a small battery bar underneath:
+    // green > 50%, yellow 21-50%, red <= 20%, blue while charging. Faded and without the bar when disconnected.
+    SDL_Surface* MakeTrayIcon(const ClientTrayStatus& status)
     {
         SDL_Surface* surface = SDL_CreateSurface(kIconSize, kIconSize, SDL_PIXELFORMAT_ARGB8888);
         if (!surface)
             return nullptr;
         SDL_FillSurfaceRect(surface, nullptr, SDL_MapSurfaceRGBA(surface, 0, 0, 0, 0));
 
-        const bool active = status.connected && status.hasBattery;
-        const Uint32 outline =
-            active ? SDL_MapSurfaceRGBA(surface, 240, 240, 240, 255) : SDL_MapSurfaceRGBA(surface, 140, 140, 140, 255);
-        const Uint32 clear = SDL_MapSurfaceRGBA(surface, 0, 0, 0, 0);
+        DrawHeadphone(surface, kIconSize, status.connected ? 255 : 110);
 
-        // Body 2..27 x 8..24, 2px stroke; terminal 28..30 x 12..20.
-        const SDL_Rect body{2, 8, 26, 17};
-        const SDL_Rect inner{4, 10, 22, 13};
-        const SDL_Rect terminal{28, 12, 3, 9};
-        SDL_FillSurfaceRect(surface, &body, outline);
-        SDL_FillSurfaceRect(surface, &inner, clear);
-        SDL_FillSurfaceRect(surface, &terminal, outline);
-
-        if (active)
+        if (status.connected && status.hasBattery)
         {
             const uint32_t level = status.batteryPercent > 100 ? 100 : status.batteryPercent;
             Uint32 fill;
@@ -107,13 +149,16 @@ namespace
                 fill = SDL_MapSurfaceRGBA(surface, 240, 190, 40, 255);
             else
                 fill = SDL_MapSurfaceRGBA(surface, 230, 60, 50, 255);
-            // Inside the stroke with a 1px gap; at least 2px so a low battery is still visible.
-            const int maxWidth = inner.w - 2;
-            int width = static_cast<int>((maxWidth * level + 50) / 100);
+            // Bar below the outline: light frame 3..28 x 27..31, dark track inside, fill from the left.
+            const SDL_Rect frame{3, 27, 26, 5};
+            const SDL_Rect track{4, 28, 24, 3};
+            SDL_FillSurfaceRect(surface, &frame, SDL_MapSurfaceRGBA(surface, 235, 235, 235, 255));
+            SDL_FillSurfaceRect(surface, &track, SDL_MapSurfaceRGBA(surface, 30, 30, 30, 255));
+            int width = static_cast<int>((track.w * level + 50) / 100);
             if (width < 2)
-                width = 2;
-            const SDL_Rect level_rect{inner.x + 1, inner.y + 1, width, inner.h - 2};
-            SDL_FillSurfaceRect(surface, &level_rect, fill);
+                width = 2; // Still visible when nearly empty.
+            const SDL_Rect levelRect{track.x, track.y, width, track.h};
+            SDL_FillSurfaceRect(surface, &levelRect, fill);
         }
         return surface;
     }
@@ -167,7 +212,7 @@ namespace
         if (gEntryAutostart)
             SDL_SetTrayEntryChecked(gEntryAutostart, autostartIsEnabled());
 
-        if (SDL_Surface* icon = MakeBatteryIcon(status))
+        if (SDL_Surface* icon = MakeTrayIcon(status))
         {
             SDL_SetTrayIcon(gTray, icon); // SDL converts the surface to an HICON; the surface can go.
             SDL_DestroySurface(icon);
@@ -281,12 +326,42 @@ namespace
     }
 } // namespace
 
+void traySetWindowIcon(SDL_Window* window)
+{
+    // Explicit WM_SETICON with several sizes, so the taskbar/title bar never fall back to a stale cached
+    // .exe icon. SDL picks the closest size per DPI from the alternates.
+    constexpr int kSizes[] = {32, 16, 48, 64, 128, 256};
+    SDL_Surface* icon{};
+    for (const int size : kSizes)
+    {
+        const int drawn = size < kSpriteSize ? kSpriteSize : size;
+        SDL_Surface* surface = SDL_CreateSurface(drawn, drawn, SDL_PIXELFORMAT_ARGB8888);
+        if (!surface)
+            continue;
+        SDL_FillSurfaceRect(surface, nullptr, SDL_MapSurfaceRGBA(surface, 0, 0, 0, 0));
+        DrawHeadphone(surface, drawn, 255);
+        if (!icon)
+            icon = surface;
+        else
+        {
+            SDL_AddSurfaceAlternateImage(icon, surface);
+            SDL_DestroySurface(surface); // The primary surface keeps its own reference.
+        }
+    }
+    if (icon)
+    {
+        if (!SDL_SetWindowIcon(window, icon))
+            SDL_Log("SDL_SetWindowIcon: %s", SDL_GetError());
+        SDL_DestroySurface(icon);
+    }
+}
+
 bool trayInit(SDL_Window* window)
 {
 #ifdef _WIN32
     gTrayWindow = window;
     ClientTrayStatus disconnected{};
-    SDL_Surface* icon = MakeBatteryIcon(disconnected);
+    SDL_Surface* icon = MakeTrayIcon(disconnected);
     gTray = SDL_CreateTray(icon, "Fone desconectado");
     SDL_DestroySurface(icon);
     if (!gTray)

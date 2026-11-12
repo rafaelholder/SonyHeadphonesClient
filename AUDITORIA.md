@@ -86,6 +86,11 @@
   - ficam no mesmo `settings.ini`, como linhas `eq_preset=nome|clear bass|bandas`. A leitura é estrita: inteiros entre −100 e 100, no máximo 10 bandas e 16 presets, e o nome sai sem `|` nem caracteres de controle;
   - ao aplicar um preset, o app troca o fone para um preset customizável (Manual/Custom) e envia as bandas e o Clear Bass ajustados ao limite que o fone informa;
   - testado pelo usuário com o WH-1000XM5 em 11/11/2026: o som mudou ao aplicar os presets.
+- **Ícone de headphone pixelado** (`kHeadphoneSprite`/`DrawHeadphone`/`traySetWindowIcon` em `client/Tray.cpp`, `client/Platform/Windows/app.ico` gerado por `tooling/make-pixel-icon.py`):
+  - o script usa só a biblioteca padrão do Python (`zlib` e `struct`) e escreve PNG dentro do ICO;
+  - a janela recebe o ícone por `SDL_SetWindowIcon` (`WM_SETICON`), em 6 tamanhos;
+  - na bandeja, o ícone mantém a barra de bateria;
+  - verificado pelo `WM_GETICON` da janela e pelo usuário na barra de tarefas em 11/11/2026.
 - **Instalação local** (`tooling/install-windows.ps1`):
   - copia o `.exe` para `%LOCALAPPDATA%\Programs\SonyHeadphonesClient` e confere o SHA-256 da cópia;
   - cria um atalho no menu Iniciar;

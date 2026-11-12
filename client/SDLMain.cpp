@@ -487,6 +487,7 @@ int main(int argc, char** argv)
             MDR_LOG("Error: ImGui_ImplSDLRenderer3_Init()");
             break;
         }
+        traySetWindowIcon(gWindow);
         if (trayInit(gWindow))
         {
             // Closing the only window must hide it, not quit (SDL sends SDL_EVENT_QUIT by default).
